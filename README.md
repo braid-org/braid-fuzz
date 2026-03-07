@@ -28,10 +28,10 @@ The dashboard exposes the following tunable parameters:
 | **Settle delay** (ms) | Time to wait after editing stops for clients to converge |
 | **Edit interval** (ms, min-max) | Random range between simulated edits |
 | **ACK delay** (ms, min-max) | Artificial delay on server acknowledgments |
-| **Connected duration** (ms, min-max) | How long a client stays connected before a simulated disconnect |
-| **Disconnected duration** (ms, min-max) | How long a client stays disconnected before reconnecting |
+| **Connected duration** (ms, min-max) | How long a client stays connected before a simulated disconnect (server waits for client to reconnect) |
 | **PUT drop probability** (%) | Chance that a PUT (outgoing edit) is silently dropped |
 | **ACK drop probability** (%) | Chance that an ACK (server acknowledgment) is silently dropped |
+| **Silent disconnect probability** (%) | Chance that a disconnect is "silent" — server stops sending data but keeps the TCP socket open (simulates wifi going down) |
 
 All parameters are live-editable and pushed to the server immediately on change.
 

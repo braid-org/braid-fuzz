@@ -12,9 +12,9 @@
         <label><input id="edit_interval_min" type="number" style="width:65px">–<input id="edit_interval_max" type="number" style="width:65px"> ms edit interval</label>
         <label><input id="min_delay" type="number" style="width:65px">–<input id="max_delay" type="number" style="width:65px"> ms ACK delay</label>
         <label><input id="connect_min" type="number" style="width:65px">–<input id="connect_max" type="number" style="width:65px"> ms connected duration</label>
-        <label><input id="disconnect_min" type="number" style="width:65px">–<input id="disconnect_max" type="number" style="width:65px"> ms disconnected duration</label>
         <label><input id="put_drop_prob" type="number" step="1" min="0" max="100" style="width:65px">% PUT drop probability</label>
         <label><input id="ack_drop_prob" type="number" step="1" min="0" max="100" style="width:65px">% ACK drop probability</label>
+        <label><input id="silent_disconnect_prob" type="number" step="1" min="0" max="100" style="width:65px">% silent disconnect probability</label>
       </div>
     </div>
     <div style="font-size: 12px; color: #444; border-left: 1px solid #ddd; padding-left: 20px; max-width: 520px">
@@ -38,7 +38,7 @@
   </div>
   <div id="error_banner" style="display: none; background: #f44; color: white; padding: 6px; margin-bottom: 8px; font-weight: bold; border-radius: 4px"></div>
   <div id="session_list" style="flex: 1; overflow: auto">
-    <p style="color: #888; margin-top: 0">Waiting for test clients to connect to <a href="/test" target="_blank">/test</a>...</p>
+    <p style="color: #888; margin-top: 0">Waiting for clients to subscribe to <code>/fuzz-session</code>...</p>
   </div>
 </body>
 <script src="/braid-http-client.js"></script>
@@ -133,7 +133,9 @@
     if (!b || b.result) return  // don't update progress after result
 
     // Show disconnect state in the dot
-    if (sd.disconnected) {
+    if (sd.silent_disconnected) {
+      b.status_dot.style.background = "#c0f"  // purple for silent disconnect
+    } else if (sd.disconnected) {
       b.status_dot.style.background = "#f80"
     } else {
       b.status_dot.style.background = "#0a0"
@@ -147,7 +149,8 @@
       b.progress.style.animation = ""
       var remaining = Math.max(0, Math.ceil((cfg.session_duration - elapsed) / 1000))
       var status = `fuzzing — ${remaining}s remaining`
-      if (sd.disconnected) status += " (disconnected)"
+      if (sd.silent_disconnected) status += " (silent disconnect)"
+      else if (sd.disconnected) status += " (disconnected)"
       b.status_label.textContent = status
       // Enable smooth transition after first position is set
       if (b.fresh) {
@@ -172,7 +175,8 @@
           ? `waiting for ${sd.pending_acks} ACK${sd.pending_acks > 1 ? "s" : ""}...`
           : "settling..."
       }
-      if (sd.disconnected) b.status_label.textContent += " (disconnected)"
+      if (sd.silent_disconnected) b.status_label.textContent += " (silent disconnect)"
+      else if (sd.disconnected) b.status_label.textContent += " (disconnected)"
     }
   }
 
@@ -267,10 +271,9 @@
           settle_delay.value = cfg.settle_delay
           connect_min.value = cfg.connect_min
           connect_max.value = cfg.connect_max
-          disconnect_min.value = cfg.disconnect_min
-          disconnect_max.value = cfg.disconnect_max
           put_drop_prob.value = Math.round(cfg.put_drop_prob * 100)
           ack_drop_prob.value = Math.round(cfg.ack_drop_prob * 100)
+          silent_disconnect_prob.value = Math.round(cfg.silent_disconnect_prob * 100)
         }
         update_from_config(cfg)
       } catch (e) {
@@ -279,7 +282,7 @@
     })
   })
 
-  var config_inputs = [min_delay, max_delay, edit_interval_min, edit_interval_max, session_duration, settle_delay, connect_min, connect_max, disconnect_min, disconnect_max, put_drop_prob, ack_drop_prob]
+  var config_inputs = [min_delay, max_delay, edit_interval_min, edit_interval_max, session_duration, settle_delay, connect_min, connect_max, put_drop_prob, ack_drop_prob, silent_disconnect_prob]
   config_inputs.forEach(el => el.onchange = send_config)
 
   function send_config() {
@@ -295,10 +298,9 @@
         settle_delay: parseInt(settle_delay.value),
         connect_min: parseInt(connect_min.value),
         connect_max: parseInt(connect_max.value),
-        disconnect_min: parseInt(disconnect_min.value),
-        disconnect_max: parseInt(disconnect_max.value),
         put_drop_prob: parseFloat(put_drop_prob.value) / 100,
-        ack_drop_prob: parseFloat(ack_drop_prob.value) / 100
+        ack_drop_prob: parseFloat(ack_drop_prob.value) / 100,
+        silent_disconnect_prob: parseFloat(silent_disconnect_prob.value) / 100
       })
     })
   }
@@ -325,7 +327,7 @@
 
     // Show waiting message if no peers ever connected
     if (Object.keys(peer_bars).length === 0 && cfg.sessions === 0) {
-      session_list.innerHTML = '<p style="color: #888; margin-top: 0">Waiting for test clients to connect to <a href="/test" target="_blank">/test</a>...</p>'
+      session_list.innerHTML = '<p style="color: #888; margin-top: 0">Waiting for clients to subscribe to <code>/fuzz-session</code>...</p>'
     }
   }
 

@@ -14,10 +14,9 @@ var session_duration = 15000     // ms before session ends
 var settle_delay = 3000          // ms to wait after last ACK before verifying
 var connect_min = 2000           // min connected duration ms (0 = no disconnects)
 var connect_max = 8000           // max connected duration ms
-var disconnect_min = 2000        // min disconnect duration ms
-var disconnect_max = 8000        // max disconnect duration ms
 var put_drop_prob = 0.2          // probability (0-1) of dropping a PUT entirely (not processed, connection destroyed)
 var ack_drop_prob = 0.2          // probability (0-1) of processing a PUT but dropping the ACK (connection destroyed after processing)
+var silent_disconnect_prob = 0   // probability (0-1) that a disconnect is "silent" (no TCP close, server just stops sending)
 
 braid_text.db_folder = null
 
@@ -98,11 +97,10 @@ var server = http2.createSecureServer({
                     var restart_disconnects = false
                     if (cfg.connect_min != null) { connect_min = cfg.connect_min; restart_disconnects = true }
                     if (cfg.connect_max != null) { connect_max = cfg.connect_max; restart_disconnects = true }
-                    if (cfg.disconnect_min != null) { disconnect_min = cfg.disconnect_min; restart_disconnects = true }
-                    if (cfg.disconnect_max != null) { disconnect_max = cfg.disconnect_max; restart_disconnects = true }
                     if (restart_disconnects) sessions.forEach(s => restart_disconnect_scheduler(s))
                     if (cfg.put_drop_prob != null) put_drop_prob = cfg.put_drop_prob
                     if (cfg.ack_drop_prob != null) ack_drop_prob = cfg.ack_drop_prob
+                    if (cfg.silent_disconnect_prob != null) silent_disconnect_prob = cfg.silent_disconnect_prob
                     res.writeHead(200, { "Content-Type": "application/json" })
                     res.end(config_json())
                 } catch (e) {
@@ -148,8 +146,8 @@ var server = http2.createSecureServer({
                 fuzz_timer: null, session_end_timer: null,
                 settling: false, settle_timer: null, settle_start_time: null,
                 start_time: null, pending_acks: 0, running: false,
-                disconnected: false, disconnect_timer: null,
-                doc_sub_res: null,
+                disconnected: false, silent_disconnected: false, disconnect_timer: null,
+                doc_sub_res: null, silenced_doc_sub_res: null,
                 pending_ack_flushers: []
             }
             sessions.push(session)
@@ -251,8 +249,9 @@ var server = http2.createSecureServer({
     }
 
     // Simulate per-session disconnect: drop requests for disconnected sessions
+    // But allow GET/subscribe through — that's the client reconnecting
     var disc_session = sessions.find(s => s.doc_key === req.url && s.disconnected)
-    if (disc_session) {
+    if (disc_session && !(req.method === "GET" && req.headers.subscribe)) {
         console.log(`  (simulated disconnect for ${disc_session.peer} -- dropping ${req.method} ${req.url})`)
         req.on("data", () => {})
         req.on("end", () => res.destroy())
@@ -312,7 +311,19 @@ var server = http2.createSecureServer({
     // Track doc subscription response so we can destroy it on simulated disconnect
     var sub_session = sessions.find(s => s.doc_key === req.url)
     if (sub_session && req.method === "GET" && req.headers.subscribe) {
+        // Clean up silent disconnect state if client reconnected
+        if (sub_session.silent_disconnected) {
+            sub_session.silent_disconnected = false
+            if (sub_session.silenced_doc_sub_res) {
+                try { sub_session.silenced_doc_sub_res.destroy() } catch (e) {}
+                sub_session.silenced_doc_sub_res = null
+            }
+            console.log(`  ${sub_session.peer} reconnected after silent disconnect`)
+        }
+        sub_session.disconnected = false
         sub_session.doc_sub_res = res
+        // Reschedule next disconnect now that client is back
+        if (sub_session.running && !sub_session.settling) restart_disconnect_scheduler(sub_session)
         // If session was waiting to settle until client reconnected, start settling now
         if (sub_session.settling && !sub_session.settle_timer) {
             console.log(`  ${sub_session.peer} reconnected, now settling...`)
@@ -424,6 +435,15 @@ function start_session(session) {
         session.settling = true
         // Stop disconnect cycling and ensure connected state so client can settle
         if (session.disconnect_timer) { clearTimeout(session.disconnect_timer); session.disconnect_timer = null }
+        // If silently disconnected, destroy the silenced response so client reconnects
+        if (session.silent_disconnected) {
+            if (session.silenced_doc_sub_res) {
+                try { session.silenced_doc_sub_res.destroy() } catch (e) {}
+                session.silenced_doc_sub_res = null
+            }
+            session.silent_disconnected = false
+            session.doc_sub_res = null
+        }
         session.disconnected = false
         // Flush all pending ACK delays immediately — session is over
         var flushers = session.pending_ack_flushers.slice()
@@ -444,6 +464,11 @@ function stop_session(session) {
     session.running = false
     session.start_time = null
     session.disconnected = false
+    session.silent_disconnected = false
+    if (session.silenced_doc_sub_res) {
+        try { session.silenced_doc_sub_res.destroy() } catch (e) {}
+        session.silenced_doc_sub_res = null
+    }
     if (session.session_end_timer) { clearTimeout(session.session_end_timer); session.session_end_timer = null }
     if (session.settle_timer) { clearTimeout(session.settle_timer); session.settle_timer = null }
     if (session.disconnect_timer) { clearTimeout(session.disconnect_timer); session.disconnect_timer = null }
@@ -525,7 +550,7 @@ setInterval(broadcast_config, 250)
 function config_json() {
     return JSON.stringify({
         min_delay, max_delay, edit_interval_min, edit_interval_max, session_duration, settle_delay,
-        connect_min, connect_max, disconnect_min, disconnect_max, put_drop_prob, ack_drop_prob,
+        connect_min, connect_max, put_drop_prob, ack_drop_prob, silent_disconnect_prob,
         sessions: sessions.length,
         session_details: sessions.map(s => ({
             peer: s.peer,
@@ -534,7 +559,8 @@ function config_json() {
             start_time: s.start_time,
             settle_start_time: s.settle_start_time,
             pending_acks: s.pending_acks,
-            disconnected: s.disconnected
+            disconnected: s.disconnected,
+            silent_disconnected: s.silent_disconnected
         }))
     })
 }
@@ -550,22 +576,25 @@ function restart_disconnect_scheduler(session) {
 
 function schedule_next_disconnect(session) {
     if (connect_min <= 0 && connect_max <= 0) return
-    // Stay connected for connect_min–connect_max, then disconnect for disconnect_min–disconnect_max
+    // Stay connected for connect_min–connect_max, then disconnect and wait for client to reconnect
     var connected_for = connect_min + Math.floor(Math.random() * (connect_max - connect_min))
     session.disconnect_timer = setTimeout(() => {
         session.disconnected = true
-        // Destroy existing doc subscription so client detects the disconnect
-        if (session.doc_sub_res) {
+        var is_silent = silent_disconnect_prob > 0 && Math.random() < silent_disconnect_prob
+        if (is_silent && session.doc_sub_res) {
+            // Silent disconnect: monkey-patch write to no-op so the client receives
+            // no data and no TCP close — like a network black hole (e.g. wifi down)
+            session.silent_disconnected = true
+            session.silenced_doc_sub_res = session.doc_sub_res
+            session.doc_sub_res.write = function () { return true }
+            console.log(`simulated SILENT disconnect for ${session.peer} (was connected ${connected_for}ms)`)
+        } else if (session.doc_sub_res) {
+            // Normal disconnect: destroy the socket so the client detects it
             try { session.doc_sub_res.destroy() } catch (e) {}
             session.doc_sub_res = null
+            console.log(`simulated disconnect for ${session.peer} (was connected ${connected_for}ms)`)
         }
-        var disconnected_for = disconnect_min + Math.floor(Math.random() * (disconnect_max - disconnect_min))
-        console.log(`simulated disconnect for ${session.peer} for ${disconnected_for}ms (was connected ${connected_for}ms)`)
-        session.disconnect_timer = setTimeout(() => {
-            session.disconnected = false
-            console.log(`simulated reconnect for ${session.peer}`)
-            schedule_next_disconnect(session)
-        }, disconnected_for)
+        // No reconnect timer — we wait for the client to reconnect on its own
     }, connected_for)
 }
 
@@ -579,8 +608,8 @@ server.listen(port, async () => {
     console.log(`  session duration: ${session_duration}ms`)
     console.log(`  settle delay:     ${settle_delay}ms`)
     console.log(`  connect duration: ${connect_min}-${connect_max}ms`)
-    console.log(`  disconnect dur:   ${disconnect_min}-${disconnect_max}ms`)
     console.log(`  PUT drop prob:    ${put_drop_prob}`)
     console.log(`  ACK drop prob:    ${ack_drop_prob}`)
+    console.log(`  silent disc prob: ${silent_disconnect_prob}`)
     console.log(`  (HTTP/2 with self-signed cert -- accept the cert warning in browser)`)
 })
