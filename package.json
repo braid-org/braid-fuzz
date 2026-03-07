@@ -1,0 +1,13 @@
+{
+  "name": "braid-fuzz",
+  "version": "0.0.1",
+  "description": "Fuzzer for braid projects",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "braid-text": "*",
+    "braid-http": "*"
+  }
+}
