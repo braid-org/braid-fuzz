@@ -59,42 +59,43 @@ See [Editor Agent Bridge Protocol](#editor-agent-bridge-protocol) below for what
 
 | Test | Description |
 |------|-------------|
-| A1 | Clean reconnect — server closes subscription, client reconnects |
-| A2 | TCP RST mid-stream — proxy injects RST, client recovers |
-| A3 | Silent connection death — blackhole, client detects via heartbeat |
-| A4 | Server restart — client reconnects after outage |
-| A5 | Reconnect with queued PUTs — unacked PUTs retried in order |
-| A6 | Rapid disconnect cycling — 5 disconnects in 10 seconds |
-| A7 | Disconnect during local edit — in-flight PUT retried, no duplicate |
-| A8 | Silent disconnect + remote edits — catch-up after blackhole |
-| A9 | Bad status then recovery — 503 → retry → success |
-| A10 | Retry-After header — 429 with Retry-After, client waits |
+| ARC  | Clean reconnect — server closes subscription, client reconnects |
+| ARST | TCP RST mid-stream — proxy injects RST, client recovers |
+| ABH  | Silent connection death — blackhole, client detects via heartbeat |
+| ASR  | Server restart — client reconnects after outage |
+| AQP  | Reconnect with queued PUTs — unacked PUTs retried in order |
+| ACY  | Rapid disconnect cycling — 5 disconnects in 10 seconds |
+| AIF  | Disconnect during local edit — in-flight PUT retried, no duplicate |
+| ASD  | Silent disconnect + remote edits — catch-up after blackhole |
+| ABS  | Bad status then recovery — 503 → retry → success |
+| ARA  | Retry-After header — 429 with Retry-After, client waits |
 
-### B: Subscription Behavior (8 tests)
+### B: Subscription Behavior (9 tests)
 
 | Test | Description |
 |------|-------------|
-| B1 | Initial subscribe — buffer matches server state |
-| B2 | Receive remote patch — server edit arrives in editor |
-| B3 | Receive multiple rapid patches — 10 edits, all applied in order |
-| B4 | Parents header on reconnect — delta sync after disconnect |
-| B5 | Overlapping patches on reconnect — no duplicates |
-| B6 | Heartbeat liveness — connection stays alive across heartbeats |
-| B7 | Digest verification — Repr-Digest checked, states match |
-| B8 | Malformed patch — corruption detected, client recovers |
+| BIS | Initial subscribe — buffer matches server state |
+| BRP | Receive remote patch — server edit arrives in editor |
+| BMR | Receive multiple rapid patches — 10 edits, all applied in order |
+| BEP | First PUT has empty Parents header — not omitted |
+| BPR | Parents header on reconnect — delta sync after disconnect |
+| BOP | Overlapping patches on reconnect — no duplicates |
+| BHL | Heartbeat liveness — connection stays alive across heartbeats |
+| BDV | Digest verification — Repr-Digest checked, states match |
+| BMP | Malformed patch — corruption detected, client recovers |
 
 ### C: Convergence (8 tests)
 
 | Test | Description |
 |------|-------------|
-| C1 | Local edit round-trip — insert → PUT → ACK → states match |
-| C2 | Concurrent edits converge — both sides insert at pos 0 |
-| C3 | Interleaved edits — alternating client/server, all present |
-| C4 | Delete + insert conflict — overlapping ranges converge |
-| C5 | Large burst — 20 rapid local edits, all acknowledged |
-| C6 | Empty document — edits on fresh empty doc work |
-| C7 | Edit during reconnect — offline edit merges on reconnect |
-| C8 | Multi-client convergence — 2 editors + server all converge |
+| CRT | Local edit round-trip — insert → PUT → ACK → states match |
+| CCC | Concurrent edits converge — both sides insert at pos 0 |
+| CIL | Interleaved edits — alternating client/server, all present |
+| CDI | Delete + insert conflict — overlapping ranges converge |
+| CLB | Large burst — 20 rapid local edits, all acknowledged |
+| CED | Empty document — edits on fresh empty doc work |
+| CDR | Edit during reconnect — offline edit merges on reconnect |
+| CMC | Multi-client convergence — 2 editors + server all converge |
 
 ## Editor Agent Bridge Protocol
 

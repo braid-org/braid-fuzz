@@ -8,7 +8,7 @@ var { assert_equal, assert_truthy, wait_for, wait_for_convergence, sleep } = req
 module.exports = [
 
     {
-        id: "A1",
+        id: "ARC",
         name: "Clean reconnect",
         description: "Server closes subscription; client reconnects with Parents header, resumes from last version",
         async run({ server, proxy, editor, doc }) {
@@ -45,7 +45,7 @@ module.exports = [
     },
 
     {
-        id: "A2",
+        id: "ARST",
         name: "TCP RST mid-stream",
         description: "Proxy injects RST during patch delivery; client discards partial patch, reconnects silently",
         async run({ server, proxy, editor, doc }) {
@@ -69,13 +69,13 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 10000, label: "A2: states after RST" }
+                { timeout_ms: 10000, label: "ARST: states after RST" }
             )
         }
     },
 
     {
-        id: "A3",
+        id: "ABH",
         name: "Silent connection death (blackhole)",
         description: "Proxy blackholes traffic then kills connections; client reconnects and catches up",
         async run({ server, proxy, editor, doc }) {
@@ -103,13 +103,13 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 15000, label: "A3: states after blackhole recovery" }
+                { timeout_ms: 15000, label: "ABH: states after blackhole recovery" }
             )
         }
     },
 
     {
-        id: "A4",
+        id: "ASR",
         name: "Server restart",
         description: "Server killed and restarted; client reconnects",
         async run({ server, proxy, editor, doc }) {
@@ -131,7 +131,7 @@ module.exports = [
     },
 
     {
-        id: "A5",
+        id: "AQP",
         name: "Reconnect with queued PUTs",
         description: "Connection dies with unacked PUTs; client retries them in order after reconnect",
         async run({ server, proxy, editor, doc }) {
@@ -156,7 +156,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 15000, label: "A5: states after queued PUT retry" }
+                { timeout_ms: 15000, label: "AQP: states after queued PUT retry" }
             )
 
             var final = await server.get_doc_state(doc)
@@ -166,7 +166,7 @@ module.exports = [
     },
 
     {
-        id: "A6",
+        id: "ACY",
         name: "Rapid disconnect cycling",
         description: "5 disconnects in 10 seconds; client stays consistent",
         async run({ server, proxy, editor, doc }) {
@@ -190,13 +190,13 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 15000, label: "A6: states after rapid cycling" }
+                { timeout_ms: 15000, label: "ACY: states after rapid cycling" }
             )
         }
     },
 
     {
-        id: "A7",
+        id: "AIF",
         name: "Disconnect during local edit",
         description: "Connection dies while client PUT is in flight; PUT retried, no duplicate",
         async run({ server, proxy, editor, doc }) {
@@ -216,7 +216,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 15000, label: "A7: states after in-flight PUT disconnect" }
+                { timeout_ms: 15000, label: "AIF: states after in-flight PUT disconnect" }
             )
 
             var state = await server.get_doc_state(doc)
@@ -226,7 +226,7 @@ module.exports = [
     },
 
     {
-        id: "A8",
+        id: "ASD",
         name: "Silent disconnect + remote edits",
         description: "Proxy blackholes client but server keeps editing; on reconnect, client catches up",
         async run({ server, proxy, editor, doc }) {
@@ -253,13 +253,13 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 15000, label: "A8: catch-up after blackhole" }
+                { timeout_ms: 15000, label: "ASD: catch-up after blackhole" }
             )
         }
     },
 
     {
-        id: "A9",
+        id: "ABS",
         name: "Bad status then recovery",
         description: "Server returns 503 once, then 209; client retries silently",
         async run({ server, proxy, editor, doc }) {
@@ -285,7 +285,7 @@ module.exports = [
     },
 
     {
-        id: "A10",
+        id: "ARA",
         name: "Retry-After header",
         description: "Server returns 429 + Retry-After: 2; client waits then retries",
         async run({ server, proxy, editor, doc }) {

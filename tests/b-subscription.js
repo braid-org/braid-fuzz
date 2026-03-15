@@ -9,7 +9,7 @@ var { assert_equal, assert_truthy, wait_for, wait_for_convergence, sleep } = req
 module.exports = [
 
     {
-        id: "B1",
+        id: "BIS",
         name: "Initial subscribe",
         description: "Client subscribes, receives current state, buffer matches server",
         async run({ server, proxy, editor, doc }) {
@@ -25,7 +25,7 @@ module.exports = [
     },
 
     {
-        id: "B2",
+        id: "BRP",
         name: "Receive remote patch",
         description: "Server applies edit; client receives patch and buffer updates",
         async run({ server, proxy, editor, doc }) {
@@ -42,7 +42,7 @@ module.exports = [
     },
 
     {
-        id: "B3",
+        id: "BMR",
         name: "Receive multiple rapid patches",
         description: "Server sends 10 edits rapidly; all applied in order",
         async run({ server, proxy, editor, doc }) {
@@ -56,7 +56,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 10000, label: "B3: rapid patches" }
+                { timeout_ms: 10000, label: "BMR: rapid patches" }
             )
 
             assert_equal(await editor.state(), "0123456789")
@@ -64,7 +64,53 @@ module.exports = [
     },
 
     {
-        id: "B4",
+        id: "BEP",
+        name: "First PUT has empty Parents header",
+        description: "On a fresh document the first PUT must include a Parents header with an empty value (no parents), not omit it entirely",
+        async run({ server, proxy, editor, doc }) {
+            var captured_puts = []
+
+            server._on_put = (req, res, url) => {
+                if (url === doc) {
+                    captured_puts.push({
+                        has_parents_header: "parents" in req.headers,
+                        parents_raw: req.headers.parents,
+                    })
+                }
+            }
+
+            await editor.connect(doc)
+            await sleep(500)
+
+            // First edit on a brand-new document — no prior versions exist
+            await editor.insert(0, "hello")
+
+            await wait_for(() => captured_puts.length >= 1,
+                { timeout_ms: 5000, msg: "Server should receive at least one PUT" })
+
+            try { await editor.wait_ack() } catch (e) {}
+            await sleep(500)
+
+            // The first PUT must have a Parents header present
+            var first_put = captured_puts[0]
+            assert_truthy(first_put.has_parents_header,
+                "First PUT must include a Parents header (got none). " +
+                "When there are no parents, send an empty Parents header — do not omit it.")
+
+            // The value should parse to an empty array (no parent versions)
+            var parsed = JSON.parse("[" + first_put.parents_raw + "]")
+            assert_equal(parsed.length, 0,
+                "First PUT Parents header should be empty (no parent versions), " +
+                "but got: " + first_put.parents_raw)
+
+            // Sanity check: the edit still went through
+            assert_equal(await editor.state(), await server.get_doc_state(doc),
+                "States should match after first PUT")
+        }
+    },
+
+    {
+        id: "BPR",
         name: "Parents header on reconnect",
         description: "After reconnect, client sends correct Parents; server sends only delta",
         async run({ server, proxy, editor, doc }) {
@@ -90,7 +136,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 10000, label: "B4: reconnect with parents" }
+                { timeout_ms: 10000, label: "BPR: reconnect with parents" }
             )
 
             if (reconnect_headers && reconnect_headers.parents) {
@@ -103,7 +149,7 @@ module.exports = [
     },
 
     {
-        id: "B5",
+        id: "BOP",
         name: "Overlapping patches on reconnect",
         description: "Server resends some already-applied patches; client handles idempotently",
         async run({ server, proxy, editor, doc }) {
@@ -122,7 +168,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 10000, label: "B5: overlap after reconnect" }
+                { timeout_ms: 10000, label: "BOP: overlap after reconnect" }
             )
 
             assert_equal(await editor.state(), await server.get_doc_state(doc),
@@ -131,7 +177,7 @@ module.exports = [
     },
 
     {
-        id: "B6",
+        id: "BHL",
         name: "Heartbeat liveness",
         description: "Client requests heartbeats; server confirms; blank lines keep connection alive",
         async run({ server, proxy, editor, doc }) {
@@ -155,7 +201,7 @@ module.exports = [
     },
 
     {
-        id: "B7",
+        id: "BDV",
         name: "Digest verification",
         description: "Server sends patch with Repr-Digest; client verifies and does not diverge",
         async run({ server, proxy, editor, doc }) {
@@ -169,7 +215,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 10000, label: "B7: digest verified convergence" }
+                { timeout_ms: 10000, label: "BDV: digest verified convergence" }
             )
 
             assert_equal(await editor.state(), "aaabbbccc")
@@ -177,7 +223,7 @@ module.exports = [
     },
 
     {
-        id: "B8",
+        id: "BMP",
         name: "Malformed patch - abort or recover",
         description: "Server sends garbage in subscription; client warns and does not corrupt buffer",
         async run({ server, proxy, editor, doc }) {
@@ -204,7 +250,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 15000, label: "B8: recovery after disruption" }
+                { timeout_ms: 15000, label: "BMP: recovery after disruption" }
             )
         }
     },

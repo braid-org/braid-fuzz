@@ -9,7 +9,7 @@ var { assert_equal, assert_truthy, wait_for, wait_for_convergence, sleep } = req
 module.exports = [
 
     {
-        id: "C1",
+        id: "CRT",
         name: "Local edit round-trip",
         description: "Client inserts text; server receives PUT; client gets ACK; states match",
         async run({ server, proxy, editor, doc }) {
@@ -30,7 +30,7 @@ module.exports = [
     },
 
     {
-        id: "C2",
+        id: "CCC",
         name: "Concurrent edits converge",
         description: "Client inserts at pos 0, server inserts at pos 0 simultaneously; both converge",
         async run({ server, proxy, editor, doc }) {
@@ -44,7 +44,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 10000, label: "C2: concurrent insert convergence" }
+                { timeout_ms: 10000, label: "CCC: concurrent insert convergence" }
             )
 
             var state = await editor.state()
@@ -54,7 +54,7 @@ module.exports = [
     },
 
     {
-        id: "C3",
+        id: "CIL",
         name: "Interleaved edits",
         description: "Alternating client/server edits (5 each); final states match",
         async run({ server, proxy, editor, doc }) {
@@ -71,7 +71,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 10000, label: "C3: interleaved edits" }
+                { timeout_ms: 10000, label: "CIL: interleaved edits" }
             )
 
             var state = await editor.state()
@@ -83,7 +83,7 @@ module.exports = [
     },
 
     {
-        id: "C4",
+        id: "CDI",
         name: "Delete + insert conflict",
         description: "Client deletes at one end, server inserts at other; converges",
         async run({ server, proxy, editor, doc }) {
@@ -102,7 +102,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 10000, label: "C4: delete+insert conflict" }
+                { timeout_ms: 10000, label: "CDI: delete+insert conflict" }
             )
 
             assert_equal(await editor.state(), await server.get_doc_state(doc),
@@ -111,7 +111,7 @@ module.exports = [
     },
 
     {
-        id: "C5",
+        id: "CLB",
         name: "Large burst of edits",
         description: "20 rapid local edits; all acknowledged; final state matches server",
         async run({ server, proxy, editor, doc }) {
@@ -125,7 +125,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 20000, label: "C5: large burst" }
+                { timeout_ms: 20000, label: "CLB: large burst" }
             )
 
             assert_equal((await editor.state()).length, 20, "Should have 20 characters")
@@ -133,7 +133,7 @@ module.exports = [
     },
 
     {
-        id: "C6",
+        id: "CED",
         name: "Empty document",
         description: "Both sides start from empty; edits work correctly",
         async run({ server, proxy, editor, doc }) {
@@ -147,7 +147,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 5000, label: "C6: first edit on empty doc" }
+                { timeout_ms: 5000, label: "CED: first edit on empty doc" }
             )
 
             assert_equal(await editor.state(), "first")
@@ -155,7 +155,7 @@ module.exports = [
     },
 
     {
-        id: "C7",
+        id: "CDR",
         name: "Edit during reconnect",
         description: "Client makes local edit while disconnected; on reconnect, edit merges correctly",
         async run({ server, proxy, editor, doc }) {
@@ -177,7 +177,7 @@ module.exports = [
             await wait_for_convergence(
                 () => editor.state(),
                 () => server.get_doc_state(doc),
-                { timeout_ms: 15000, label: "C7: edit during disconnect" }
+                { timeout_ms: 15000, label: "CDR: edit during disconnect" }
             )
 
             var state = await editor.state()
@@ -188,7 +188,7 @@ module.exports = [
     },
 
     {
-        id: "C8",
+        id: "CMC",
         name: "Multi-client convergence",
         description: "2 editor instances + server all edit concurrently; all 3 converge",
         needs_extra_editor: true,
