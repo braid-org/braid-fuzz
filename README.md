@@ -26,25 +26,25 @@ See [Editor Agent Bridge Protocol](#editor-agent-bridge-protocol) below for what
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    Test Runner (Node.js)                  │
+│                    Test Runner (Node.js)                 │
 │                                                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
 │  │ Test Suites  │  │ Socket Proxy │  │ Braid-Text     │  │
 │  │ A/B/C        │  │ (fault       │  │ Server         │  │
 │  │              │  │  injection)  │  │ (real CRDT)    │  │
 │  └──────┬───────┘  └──────┬───────┘  └───────┬────────┘  │
-│         │                 │                   │           │
-│         ▼                 ▼                   │           │
-│  ┌─────────────────────────────┐              │           │
-│  │      Editor Agent Bridge    │◄─────────────┘           │
-│  │  stdin/stdout JSON-lines    │                          │
-│  └──────────┬──────────────────┘                          │
-│             │                                             │
-│             ▼                                             │
-│  ┌─────────────────────────────┐                          │
-│  │  emacs --batch / nvim       │                          │
-│  │  --headless / JS shim       │                          │
-│  └─────────────────────────────┘                          │
+│         │                 │                  │           │
+│         ▼                 ▼                  │           │
+│  ┌─────────────────────────────┐             │           │
+│  │      Editor Agent Bridge    │◄────────────┘           │
+│  │  stdin/stdout JSON-lines    │                         │
+│  └──────────┬──────────────────┘                         │
+│             │                                            │
+│             ▼                                            │
+│  ┌─────────────────────────────┐                         │
+│  │  emacs --batch / nvim       │                         │
+│  │  --headless / JS shim       │                         │
+│  └─────────────────────────────┘                         │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -98,30 +98,136 @@ See [Editor Agent Bridge Protocol](#editor-agent-bridge-protocol) below for what
 
 ## Editor Agent Bridge Protocol
 
-The test runner communicates with the editor via JSON-lines over stdin/stdout. The editor plugin must include a thin "agent shim" that translates these commands.
+The test runner communicates with the editor via JSON-lines over stdin/stdout. The editor plugin must include a thin "agent shim" that translates these commands. Each message is a single line of JSON terminated by `\n`.
 
-**Commands (runner → editor):**
+Every command includes an `id` (integer, assigned by the runner) and a `cmd` (string). The shim must echo back the same `id` in its response.
+
+### Commands (runner → editor)
+
+#### `connect` — Open a Braid subscription to a URL
 
 ```json
-{"id": 1, "cmd": "connect", "url": "http://..."}
-{"id": 2, "cmd": "insert", "pos": 5, "text": "hello"}
-{"id": 3, "cmd": "delete", "pos": 3, "len": 2}
-{"id": 4, "cmd": "replace", "pos": 3, "len": 2, "text": "x"}
-{"id": 5, "cmd": "state"}
-{"id": 6, "cmd": "wait-ack"}
-{"id": 7, "cmd": "kill-sub"}
-{"id": 8, "cmd": "quit"}
+{"id": 1, "cmd": "connect", "url": "http://127.0.0.1:4567/doc"}
 ```
 
-**Responses (editor → runner):**
+| Field | Type   | Description |
+|-------|--------|-------------|
+| `url` | string | Full HTTP URL of the braid-text resource to subscribe to |
+
+The shim should start a `simpleton_client` (or equivalent) subscription to the given URL, wiring up `on_state` / `get_state` callbacks so the local buffer tracks remote state.
+
+#### `insert` — Insert text at a character position
+
+```json
+{"id": 2, "cmd": "insert", "pos": 5, "text": "hello"}
+```
+
+| Field  | Type   | Description |
+|--------|--------|-------------|
+| `pos`  | number | 0-based character index (not byte offset) to insert before |
+| `text` | string | Text to insert |
+
+Mutates the local buffer and triggers a PUT to the server (via `simpleton.changed()` or equivalent).
+
+#### `delete` — Delete characters at a position
+
+```json
+{"id": 3, "cmd": "delete", "pos": 3, "len": 2}
+```
+
+| Field | Type   | Description |
+|-------|--------|-------------|
+| `pos` | number | 0-based character index where deletion starts |
+| `len` | number | Number of characters to delete |
+
+#### `replace` — Replace a range of characters
+
+```json
+{"id": 4, "cmd": "replace", "pos": 3, "len": 2, "text": "x"}
+```
+
+| Field  | Type   | Description |
+|--------|--------|-------------|
+| `pos`  | number | 0-based character index where replacement starts |
+| `len`  | number | Number of characters to remove |
+| `text` | string | Replacement text (can be shorter, longer, or same length) |
+
+Equivalent to a `delete` at `(pos, len)` followed by an `insert` at `(pos, text)`, but as a single operation.
+
+#### `state` — Return the current buffer contents
+
+```json
+{"id": 5, "cmd": "state"}
+```
+
+No extra fields. The response **must** include a `state` field with the full buffer contents as a string:
+
+```json
+{"id": 5, "ok": true, "state": "current buffer text"}
+```
+
+#### `wait-ack` — Block until all pending PUTs are acknowledged
+
+```json
+{"id": 6, "cmd": "wait-ack"}
+```
+
+No extra fields. The shim must not respond until every previously triggered PUT has received an ACK from the server. If there are no pending PUTs, respond immediately.
+
+#### `kill-sub` — Tear down the active subscription
+
+```json
+{"id": 7, "cmd": "kill-sub"}
+```
+
+No extra fields. Aborts the current subscription (e.g., calls `simpleton.abort()`). Does **not** clear the local buffer. Tests use this to simulate client-side disconnects before re-connecting.
+
+#### `kill-put` — Cancel any in-flight PUT request
+
+```json
+{"id": 8, "cmd": "kill-put"}
+```
+
+No extra fields. If the underlying client supports aborting in-flight PUTs, do so. Otherwise, acknowledge and no-op. The reference JS shim treats this as a no-op.
+
+#### `quit` — Shut down the shim process
+
+```json
+{"id": 9, "cmd": "quit"}
+```
+
+No extra fields. The shim should respond, clean up resources (abort subscriptions), and exit.
+
+### Responses (editor → runner)
+
+Every response is a single JSON line containing the `id` from the command.
+
+**Success:**
 
 ```json
 {"id": 1, "ok": true}
-{"id": 5, "ok": true, "state": "buffer contents here"}
-{"id": 8, "ok": true}
 ```
 
-On error: `{"id": 1, "error": "description"}`
+**Success with data** (only `state` returns extra fields):
+
+```json
+{"id": 5, "ok": true, "state": "buffer contents here"}
+```
+
+**Error:**
+
+```json
+{"id": 1, "error": "description of what went wrong"}
+```
+
+### Writing a new shim
+
+Implement a process that reads JSON lines from stdin and writes JSON lines to stdout. See [shims/js-simpleton.js](shims/js-simpleton.js) for a complete reference implementation. Key points:
+
+- All positions are **character offsets**, not byte offsets (relevant for multi-byte UTF-8).
+- Diagnostic/debug output must go to **stderr**, never stdout — the runner parses stdout as protocol messages.
+- The shim must handle commands sequentially (respond to each before reading the next) except for `wait-ack`, which blocks until ACKs arrive.
+- Unknown commands should return an error response, not crash.
 
 ## CLI options
 

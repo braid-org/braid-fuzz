@@ -1,6 +1,6 @@
 {
   "name": "braid-fuzz",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Headless editor plugin test harness and fuzz tester for Braid protocol implementations",
   "main": "test-runner.js",
   "scripts": {
