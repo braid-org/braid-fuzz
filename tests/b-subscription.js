@@ -4,7 +4,7 @@
 // Braid subscription semantics: initial state, patches, parents,
 // heartbeats, digest verification, and error handling.
 
-var { assert_equal, assert_truthy, wait_for, wait_for_convergence, sleep } = require("../lib/assertions")
+var { assert_equal, assert_truthy, assert_includes, wait_for, wait_for_convergence, sleep } = require("../lib/assertions")
 
 module.exports = [
 
@@ -219,6 +219,39 @@ module.exports = [
             )
 
             assert_equal(await editor.state(), "aaabbbccc")
+        }
+    },
+
+    {
+        id: "BMP2",
+        name: "Multi-patch update",
+        description: "Server sends Patches: 2 in one update; client applies all patches, not just the first",
+        async run({ server, proxy, editor, doc }) {
+            // Seed the document
+            await server.insert_at(doc, 0, "ABCDEF")
+            await editor.connect(doc)
+            await wait_for(async () => (await editor.state()) === "ABCDEF",
+                { timeout_ms: 5000, msg: "Editor should see initial text" })
+
+            // Send two patches in a single Patches: 2 update.
+            // Using edit_doc with an array of two patches guarantees a single
+            // multi-patch frame on the wire, rather than relying on timing.
+            // Both ranges are relative to the original document ("ABCDEF", 6 chars).
+            await server.edit_doc(doc, [
+                { unit: "text", range: "[0:0]", content: "XXX" },
+                { unit: "text", range: "[6:6]", content: "YYY" },
+            ])
+
+            await wait_for_convergence(
+                () => editor.state(),
+                () => server.get_doc_state(doc),
+                { timeout_ms: 10000, label: "BMP2: multi-patch convergence" }
+            )
+
+            var state = await editor.state()
+            assert_includes(state, "XXX", "First patch content should be present")
+            assert_includes(state, "YYY", "Second patch content should be present")
+            assert_includes(state, "ABCDEF", "Original content should be preserved")
         }
     },
 

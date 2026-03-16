@@ -70,7 +70,7 @@ See [Editor Agent Bridge Protocol](#editor-agent-bridge-protocol) below for what
 | ABS  | Bad status then recovery — 503 → retry → success |
 | ARA  | Retry-After header — 429 with Retry-After, client waits |
 
-### B: Subscription Behavior (9 tests)
+### B: Subscription Behavior (10 tests)
 
 | Test | Description |
 |------|-------------|
@@ -82,6 +82,7 @@ See [Editor Agent Bridge Protocol](#editor-agent-bridge-protocol) below for what
 | BOP | Overlapping patches on reconnect — no duplicates |
 | BHL | Heartbeat liveness — connection stays alive across heartbeats |
 | BDV | Digest verification — Repr-Digest checked, states match |
+| BMP2 | Multi-patch update — Patches: 2 in one update, all applied |
 | BMP | Malformed patch — corruption detected, client recovers |
 
 ### C: Convergence (8 tests)
@@ -256,6 +257,6 @@ node test-runner.js --cmd "node ./shims/js-simpleton.js" --json
     {"id": "A1", "name": "Clean reconnect", "status": "pass", "duration_ms": 4521},
     {"id": "A2", "name": "TCP RST mid-stream", "status": "fail", "error": "...", "duration_ms": 10032}
   ],
-  "summary": {"passed": 24, "failed": 2, "skipped": 0, "total": 26}
+  "summary": {"passed": 25, "failed": 2, "skipped": 0, "total": 28}
 }
 ```
