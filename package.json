@@ -1,10 +1,10 @@
 {
   "name": "braid-fuzz",
-  "version": "0.0.6",
-  "description": "Headless editor plugin test harness and fuzz tester for Braid protocol implementations",
+  "version": "0.0.7",
+  "description": "Client test harness and fuzz tester for Braid protocol implementations",
   "main": "test-runner.js",
   "scripts": {
-    "test": "echo 'Usage: node test-runner.js --cmd \"node ./shims/js-simpleton.js\"'"
+    "test": "echo 'Usage: node test-runner.js --cmd \"node ./clients/js-simpleton.js\"'"
   },
   "dependencies": {
     "braid-text": "*",

@@ -1,6 +1,6 @@
 // Test Suite B: Subscription Behavior
 //
-// These tests verify that the editor plugin correctly implements
+// These tests verify that the client correctly implements
 // Braid subscription semantics: initial state, patches, parents,
 // heartbeats, digest verification, and error handling.
 
@@ -12,15 +12,15 @@ module.exports = [
         id: "BIS",
         name: "Initial subscribe",
         description: "Client subscribes, receives current state, buffer matches server",
-        async run({ server, proxy, editor, doc }) {
+        async run({ server, proxy, client, doc }) {
             await server.insert_at(doc, 0, "initial content")
-            await editor.connect(doc)
+            await client.connect(doc)
 
-            await wait_for(async () => (await editor.state()) === "initial content",
-                { timeout_ms: 5000, msg: "Editor buffer should match initial server state" })
+            await wait_for(async () => (await client.state()) === "initial content",
+                { timeout_ms: 5000, msg: "Client buffer should match initial server state" })
 
-            assert_equal(await editor.state(), await server.get_doc_state(doc),
-                "Editor and server state should match on initial subscribe")
+            assert_equal(await client.state(), await server.get_doc_state(doc),
+                "Client and server state should match on initial subscribe")
         }
     },
 
@@ -28,16 +28,16 @@ module.exports = [
         id: "BRP",
         name: "Receive remote patch",
         description: "Server applies edit; client receives patch and buffer updates",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "remote edit")
 
-            await wait_for(async () => (await editor.state()) === "remote edit",
-                { timeout_ms: 5000, msg: "Editor should receive remote patch" })
+            await wait_for(async () => (await client.state()) === "remote edit",
+                { timeout_ms: 5000, msg: "Client should receive remote patch" })
 
-            assert_equal(await editor.state(), "remote edit")
+            assert_equal(await client.state(), "remote edit")
         }
     },
 
@@ -45,8 +45,8 @@ module.exports = [
         id: "BMR",
         name: "Receive multiple rapid patches",
         description: "Server sends 10 edits rapidly; all applied in order",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             for (var i = 0; i < 10; i++) {
@@ -54,12 +54,12 @@ module.exports = [
             }
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 10000, label: "BMR: rapid patches" }
             )
 
-            assert_equal(await editor.state(), "0123456789")
+            assert_equal(await client.state(), "0123456789")
         }
     },
 
@@ -67,7 +67,7 @@ module.exports = [
         id: "BEP",
         name: "First PUT has empty Parents header",
         description: "On a fresh document the first PUT must include a Parents header with an empty value (no parents), not omit it entirely",
-        async run({ server, proxy, editor, doc }) {
+        async run({ server, proxy, client, doc }) {
             var captured_puts = []
 
             server._on_put = (req, res, url) => {
@@ -79,16 +79,16 @@ module.exports = [
                 }
             }
 
-            await editor.connect(doc)
+            await client.connect(doc)
             await sleep(500)
 
             // First edit on a brand-new document — no prior versions exist
-            await editor.insert(0, "hello")
+            await client.insert(0, "hello")
 
             await wait_for(() => captured_puts.length >= 1,
                 { timeout_ms: 5000, msg: "Server should receive at least one PUT" })
 
-            try { await editor.wait_ack() } catch (e) {}
+            try { await client.wait_ack() } catch (e) {}
             await sleep(500)
 
             // The first PUT must have a Parents header present
@@ -104,7 +104,7 @@ module.exports = [
                 "but got: " + first_put.parents_raw)
 
             // Sanity check: the edit still went through
-            assert_equal(await editor.state(), await server.get_doc_state(doc),
+            assert_equal(await client.state(), await server.get_doc_state(doc),
                 "States should match after first PUT")
         }
     },
@@ -113,13 +113,13 @@ module.exports = [
         id: "BPR",
         name: "Parents header on reconnect",
         description: "After reconnect, client sends correct Parents; server sends only delta",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "before")
-            await wait_for(async () => (await editor.state()).includes("before"),
-                { timeout_ms: 5000, msg: "Editor should see 'before'" })
+            await wait_for(async () => (await client.state()).includes("before"),
+                { timeout_ms: 5000, msg: "Client should see 'before'" })
 
             var reconnect_headers = null
             server._on_subscribe = (req, res, url) => {
@@ -134,7 +134,7 @@ module.exports = [
             await server.insert_at(doc, 6, " after")
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 10000, label: "BPR: reconnect with parents" }
             )
@@ -152,13 +152,13 @@ module.exports = [
         id: "BOP",
         name: "Overlapping patches on reconnect",
         description: "Server resends some already-applied patches; client handles idempotently",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "XYZ")
-            await wait_for(async () => (await editor.state()) === "XYZ",
-                { timeout_ms: 5000, msg: "Editor should see XYZ" })
+            await wait_for(async () => (await client.state()) === "XYZ",
+                { timeout_ms: 5000, msg: "Client should see XYZ" })
 
             proxy.disconnect_all()
             await sleep(500)
@@ -166,12 +166,12 @@ module.exports = [
             await sleep(2000)
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 10000, label: "BOP: overlap after reconnect" }
             )
 
-            assert_equal(await editor.state(), await server.get_doc_state(doc),
+            assert_equal(await client.state(), await server.get_doc_state(doc),
                 "States should match (no duplicate patches)")
         }
     },
@@ -180,21 +180,21 @@ module.exports = [
         id: "BHL",
         name: "Heartbeat liveness",
         description: "Client requests heartbeats; server confirms; blank lines keep connection alive",
-        async run({ server, proxy, editor, doc }) {
+        async run({ server, proxy, client, doc }) {
             server.heartbeat_seconds = 2
-            await editor.connect(doc)
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "alive")
-            await wait_for(async () => (await editor.state()) === "alive",
-                { timeout_ms: 5000, msg: "Editor should see 'alive'" })
+            await wait_for(async () => (await client.state()) === "alive",
+                { timeout_ms: 5000, msg: "Client should see 'alive'" })
 
             // Wait long enough for several heartbeats
             await sleep(6000)
 
             await server.insert_at(doc, 5, "!")
-            await wait_for(async () => (await editor.state()) === "alive!",
-                { timeout_ms: 5000, msg: "Editor should still be receiving after heartbeats" })
+            await wait_for(async () => (await client.state()) === "alive!",
+                { timeout_ms: 5000, msg: "Client should still be receiving after heartbeats" })
 
             server.heartbeat_seconds = 0
         }
@@ -204,8 +204,8 @@ module.exports = [
         id: "BDV",
         name: "Digest verification",
         description: "Server sends patch with Repr-Digest; client verifies and does not diverge",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "aaa")
@@ -213,12 +213,12 @@ module.exports = [
             await server.insert_at(doc, 6, "ccc")
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 10000, label: "BDV: digest verified convergence" }
             )
 
-            assert_equal(await editor.state(), "aaabbbccc")
+            assert_equal(await client.state(), "aaabbbccc")
         }
     },
 
@@ -226,12 +226,12 @@ module.exports = [
         id: "BMP2",
         name: "Multi-patch update",
         description: "Server sends Patches: 2 in one update; client applies all patches, not just the first",
-        async run({ server, proxy, editor, doc }) {
+        async run({ server, proxy, client, doc }) {
             // Seed the document
             await server.insert_at(doc, 0, "ABCDEF")
-            await editor.connect(doc)
-            await wait_for(async () => (await editor.state()) === "ABCDEF",
-                { timeout_ms: 5000, msg: "Editor should see initial text" })
+            await client.connect(doc)
+            await wait_for(async () => (await client.state()) === "ABCDEF",
+                { timeout_ms: 5000, msg: "Client should see initial text" })
 
             // Send two patches in a single Patches: 2 update.
             // Using edit_doc with an array of two patches guarantees a single
@@ -243,12 +243,12 @@ module.exports = [
             ])
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 10000, label: "BMP2: multi-patch convergence" }
             )
 
-            var state = await editor.state()
+            var state = await client.state()
             assert_includes(state, "XXX", "First patch content should be present")
             assert_includes(state, "YYY", "Second patch content should be present")
             assert_includes(state, "ABCDEF", "Original content should be preserved")
@@ -259,13 +259,13 @@ module.exports = [
         id: "BMP",
         name: "Malformed patch - abort or recover",
         description: "Server sends garbage in subscription; client warns and does not corrupt buffer",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "clean")
-            await wait_for(async () => (await editor.state()) === "clean",
-                { timeout_ms: 5000, msg: "Editor should see 'clean'" })
+            await wait_for(async () => (await client.state()) === "clean",
+                { timeout_ms: 5000, msg: "Client should see 'clean'" })
 
             // Kill the subscription to simulate a broken stream,
             // then reconnect. The client should recover gracefully.
@@ -281,7 +281,7 @@ module.exports = [
 
             // Client should reconnect and converge
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 15000, label: "BMP: recovery after disruption" }
             )

@@ -2,8 +2,8 @@
 
 // braid-fuzz — Test Runner
 //
-// Orchestrates the test server, socket proxy, and editor bridge to run
-// named, discrete tests against a headless editor plugin.
+// Orchestrates the test server, socket proxy, and client bridge to run
+// named, discrete tests against a braid client.
 //
 // Usage:
 //   node test-runner.js [options]
@@ -18,14 +18,14 @@
 //   --proxy-port <n>     Fixed proxy port (default: auto)
 //
 // Examples:
-//   node test-runner.js --cmd "node ./shims/js-simpleton.js"
-//   node test-runner.js --cmd "emacs --batch --load ./shims/emacs-agent.el"
-//   node test-runner.js --cmd "nvim --headless -u ./shims/nvim-agent.lua"
-//   node test-runner.js --cmd "node ./shims/js-simpleton.js" A1
+//   node test-runner.js --cmd "node ./clients/js-simpleton.js"
+//   node test-runner.js --cmd "emacs --batch --load ./clients/emacs-agent.el"
+//   node test-runner.js --cmd "nvim --headless -u ./clients/nvim-agent.lua"
+//   node test-runner.js --cmd "node ./clients/js-simpleton.js" A1
 
 var { TestServer } = require("./server")
 var { SocketProxy } = require("./proxy")
-var { EditorBridge } = require("./lib/editor-bridge")
+var { ClientBridge } = require("./lib/client-bridge")
 var { random_id, sleep } = require("./lib/assertions")
 
 // ── Parse CLI args ──────────────────────────────────────────────
@@ -56,7 +56,7 @@ for (var i = 0; i < args.length; i++) {
 }
 
 if (!opts.cmd) {
-    console.error("Error: --cmd is required. Example: --cmd \"node ./shims/js-simpleton.js\"")
+    console.error("Error: --cmd is required. Example: --cmd \"node ./clients/js-simpleton.js\"")
     process.exit(1)
 }
 
@@ -151,8 +151,8 @@ async function main() {
 
 async function run_test(test, { server, proxy, base_url }) {
     var doc = `/test-doc-${test.id.toLowerCase()}-${random_id()}`
-    var editor = null
-    var extra_editors = []
+    var client = null
+    var extra_clients = []
     var start_time = Date.now()
 
     try {
@@ -166,17 +166,17 @@ async function run_test(test, { server, proxy, base_url }) {
         server._on_get = null
         server._on_subscribe = null
 
-        editor = create_editor(base_url)
-        await editor.start()
+        client = create_client(base_url)
+        await client.start()
 
-        if (test.needs_extra_editor) {
-            var extra = create_editor(base_url)
+        if (test.needs_extra_client) {
+            var extra = create_client(base_url)
             await extra.start()
-            extra_editors.push(extra)
+            extra_clients.push(extra)
         }
 
         await Promise.race([
-            test.run({ server, proxy, editor, doc, base_url, extra_editors }),
+            test.run({ server, proxy, client, doc, base_url, extra_clients }),
             new Promise((_, reject) =>
                 setTimeout(() => reject(new Error(`Test timed out after ${opts.timeout}ms`)), opts.timeout)
             ),
@@ -193,13 +193,13 @@ async function run_test(test, { server, proxy, base_url }) {
             duration_ms: Date.now() - start_time,
         }
     } finally {
-        if (editor) await editor.stop().catch(() => {})
-        for (var ex of extra_editors) await ex.stop().catch(() => {})
+        if (client) await client.stop().catch(() => {})
+        for (var ex of extra_clients) await ex.stop().catch(() => {})
     }
 }
 
-function create_editor(base_url) {
-    return new EditorBridge({ command: cmd_program, args: cmd_args, server_base_url: base_url })
+function create_client(base_url) {
+    return new ClientBridge({ command: cmd_program, args: cmd_args, server_base_url: base_url })
 }
 
 main().catch(e => { console.error(e); process.exit(1) })

@@ -6,7 +6,7 @@
 //   - configure behavior (delays, drops, heartbeats)
 //
 // Plain HTTP/1.1 (no TLS) — the socket proxy sits between this
-// and the editor client for fault injection.
+// and the client for fault injection.
 
 var http = require("http")
 var braid_text = require("braid-text")

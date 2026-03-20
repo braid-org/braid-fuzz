@@ -1,6 +1,6 @@
 // Test Suite A: Reconnect Scenarios
 //
-// These tests verify that the editor plugin correctly handles
+// These tests verify that the client correctly handles
 // various forms of network disconnection and reconnection.
 
 var { assert_equal, assert_truthy, wait_for, wait_for_convergence, sleep } = require("../lib/assertions")
@@ -11,21 +11,21 @@ module.exports = [
         id: "ARC",
         name: "Clean reconnect",
         description: "Server closes subscription; client reconnects with Parents header, resumes from last version",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "hello")
             await wait_for(async () => {
-                var state = await editor.state()
+                var state = await client.state()
                 return state.includes("hello")
-            }, { timeout_ms: 5000, msg: "Editor should receive initial edit" })
+            }, { timeout_ms: 5000, msg: "Client should receive initial edit" })
 
             // Kill connections via proxy
             proxy.disconnect_all()
             await sleep(500)
 
-            // Restore — editor should reconnect
+            // Restore — client should reconnect
             proxy.set_mode("passthrough")
             await sleep(2000)
 
@@ -34,11 +34,11 @@ module.exports = [
             await sleep(1000)
 
             await wait_for(async () => {
-                var state = await editor.state()
+                var state = await client.state()
                 return state.includes("hello") && state.includes("world")
-            }, { timeout_ms: 10000, msg: "Editor should receive edits after reconnection" })
+            }, { timeout_ms: 10000, msg: "Client should receive edits after reconnection" })
 
-            var final_state = await editor.state()
+            var final_state = await client.state()
             var server_state = await server.get_doc_state(doc)
             assert_equal(final_state, server_state, "States should match after clean reconnect")
         }
@@ -48,8 +48,8 @@ module.exports = [
         id: "ARST",
         name: "TCP RST mid-stream",
         description: "Proxy injects RST during patch delivery; client discards partial patch, reconnects silently",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             // RST on next data
@@ -67,7 +67,7 @@ module.exports = [
             await sleep(1500)
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 10000, label: "ARST: states after RST" }
             )
@@ -78,13 +78,13 @@ module.exports = [
         id: "ABH",
         name: "Silent connection death (blackhole)",
         description: "Proxy blackholes traffic then kills connections; client reconnects and catches up",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "visible")
-            await wait_for(async () => (await editor.state()).includes("visible"),
-                { timeout_ms: 5000, msg: "Editor should see initial edit" })
+            await wait_for(async () => (await client.state()).includes("visible"),
+                { timeout_ms: 5000, msg: "Client should see initial edit" })
 
             // Blackhole — data goes nowhere
             proxy.set_mode("blackhole")
@@ -101,7 +101,7 @@ module.exports = [
             proxy.set_mode("passthrough")
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 15000, label: "ABH: states after blackhole recovery" }
             )
@@ -112,13 +112,13 @@ module.exports = [
         id: "ASR",
         name: "Server restart",
         description: "Server killed and restarted; client reconnects",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "pre-restart")
-            await wait_for(async () => (await editor.state()).includes("pre-restart"),
-                { timeout_ms: 5000, msg: "Editor should see pre-restart edit" })
+            await wait_for(async () => (await client.state()).includes("pre-restart"),
+                { timeout_ms: 5000, msg: "Client should see pre-restart edit" })
 
             // Simulate restart via proxy disconnect + reconnect
             proxy.disconnect_all()
@@ -126,7 +126,7 @@ module.exports = [
             proxy.set_mode("passthrough")
 
             await wait_for(async () => proxy.connection_count() > 0,
-                { timeout_ms: 10000, msg: "Editor should reconnect after server restart" })
+                { timeout_ms: 10000, msg: "Client should reconnect after server restart" })
         }
     },
 
@@ -134,15 +134,15 @@ module.exports = [
         id: "AQP",
         name: "Reconnect with queued PUTs",
         description: "Connection dies with unacked PUTs; client retries them in order after reconnect",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             // Delay ACKs so PUTs queue up
             server.ack_delay_ms = 5000
 
-            await editor.insert(0, "aaa")
-            await editor.insert(3, "bbb")
+            await client.insert(0, "aaa")
+            await client.insert(3, "bbb")
             await sleep(200)
 
             // Kill while PUTs are in flight
@@ -154,7 +154,7 @@ module.exports = [
             proxy.set_mode("passthrough")
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 15000, label: "AQP: states after queued PUT retry" }
             )
@@ -169,8 +169,8 @@ module.exports = [
         id: "ACY",
         name: "Rapid disconnect cycling",
         description: "5 disconnects in 10 seconds; client stays consistent",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "base")
@@ -188,7 +188,7 @@ module.exports = [
             await sleep(2000)
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 15000, label: "ACY: states after rapid cycling" }
             )
@@ -199,12 +199,12 @@ module.exports = [
         id: "AIF",
         name: "Disconnect during local edit",
         description: "Connection dies while client PUT is in flight; PUT retried, no duplicate",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             server.ack_delay_ms = 3000
-            await editor.insert(0, "inflight")
+            await client.insert(0, "inflight")
             await sleep(100)
 
             proxy.disconnect_all()
@@ -214,7 +214,7 @@ module.exports = [
             proxy.set_mode("passthrough")
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 15000, label: "AIF: states after in-flight PUT disconnect" }
             )
@@ -229,13 +229,13 @@ module.exports = [
         id: "ASD",
         name: "Silent disconnect + remote edits",
         description: "Proxy blackholes client but server keeps editing; on reconnect, client catches up",
-        async run({ server, proxy, editor, doc }) {
-            await editor.connect(doc)
+        async run({ server, proxy, client, doc }) {
+            await client.connect(doc)
             await sleep(500)
 
             await server.insert_at(doc, 0, "A")
-            await wait_for(async () => (await editor.state()).includes("A"),
-                { timeout_ms: 5000, msg: "Editor should see 'A'" })
+            await wait_for(async () => (await client.state()).includes("A"),
+                { timeout_ms: 5000, msg: "Client should see 'A'" })
 
             proxy.set_mode("blackhole")
             await sleep(200)
@@ -251,7 +251,7 @@ module.exports = [
             proxy.set_mode("passthrough")
 
             await wait_for_convergence(
-                () => editor.state(),
+                () => client.state(),
                 () => server.get_doc_state(doc),
                 { timeout_ms: 15000, label: "ASD: catch-up after blackhole" }
             )
@@ -262,7 +262,7 @@ module.exports = [
         id: "ABS",
         name: "Bad status then recovery",
         description: "Server returns 503 once, then 209; client retries silently",
-        async run({ server, proxy, editor, doc }) {
+        async run({ server, proxy, client, doc }) {
             var attempt = 0
             server._on_subscribe = (req, res, url) => {
                 attempt++
@@ -273,12 +273,12 @@ module.exports = [
                 }
             }
 
-            await editor.connect(doc)
+            await client.connect(doc)
             await sleep(3000)
 
             await server.insert_at(doc, 0, "recovered")
-            await wait_for(async () => (await editor.state()).includes("recovered"),
-                { timeout_ms: 10000, msg: "Editor should receive edit after 503 recovery" })
+            await wait_for(async () => (await client.state()).includes("recovered"),
+                { timeout_ms: 10000, msg: "Client should receive edit after 503 recovery" })
 
             server._on_subscribe = null
         }
@@ -288,7 +288,7 @@ module.exports = [
         id: "ARA",
         name: "Retry-After header",
         description: "Server returns 429 + Retry-After: 2; client waits then retries",
-        async run({ server, proxy, editor, doc }) {
+        async run({ server, proxy, client, doc }) {
             var attempt = 0
             var first_time = null
             var second_time = null
@@ -305,7 +305,7 @@ module.exports = [
                 }
             }
 
-            await editor.connect(doc)
+            await client.connect(doc)
             await sleep(5000)
 
             // Verify client retried (delay may vary by implementation —
@@ -316,8 +316,8 @@ module.exports = [
             }
 
             await server.insert_at(doc, 0, "after-retry")
-            await wait_for(async () => (await editor.state()).includes("after-retry"),
-                { timeout_ms: 10000, msg: "Editor should receive edit after Retry-After" })
+            await wait_for(async () => (await client.state()).includes("after-retry"),
+                { timeout_ms: 10000, msg: "Client should receive edit after Retry-After" })
 
             server._on_subscribe = null
         }

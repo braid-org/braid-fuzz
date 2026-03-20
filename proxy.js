@@ -1,5 +1,5 @@
 // TCP socket proxy with programmable fault injection.
-// Sits between editor client and braid-text server, allowing tests
+// Sits between client and braid-text server, allowing tests
 // to inject disconnects, delays, blackholes, RSTs, and corruption.
 
 var net = require("net")

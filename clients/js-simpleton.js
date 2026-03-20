@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Reference "agent shim" for the braid-fuzz test runner.
+// Reference client agent for the braid-fuzz test runner.
 //
 // This is a standalone Node.js process that:
 //   1. Reads JSON commands from stdin (one per line)
@@ -8,7 +8,7 @@
 //   3. Writes JSON responses to stdout (one per line)
 //
 // Usage with the test runner:
-//   node test-runner.js --cmd "node ./shims/js-simpleton.js"
+//   node test-runner.js --cmd "node ./clients/js-simpleton.js"
 
 var readline = require("readline")
 var { fetch: braid_fetch } = require("braid-http")
