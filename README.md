@@ -1,6 +1,6 @@
 # braid-fuzz
 
-Test framework for braid-http client implementations.
+Test framework for braid-http client implementations.  Helps you build a new braid-http client that syncs perfectly.  Great for guiding an AI.
 
 Run your client through this gauntlet, and get back pass/fail results that an
 AI agent (or human) can act on.
