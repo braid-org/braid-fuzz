@@ -1,6 +1,21 @@
 # braid-fuzz
 
-A headless test harness for Braid protocol editor plugins. Run discrete, named tests against an Emacs, Neovim, or any editor plugin — without a GUI — and get structured pass/fail results that an AI agent (or human) can act on.
+Test framework for braid-http client implementations.
+
+Run your client through this gauntlet, and get back pass/fail results that an
+AI agent (or human) can act on.
+
+Currently tests:
+- Core Braid-HTTP
+   - [Versions](https://datatracker.ietf.org/doc/html/draft-toomim-httpbis-versions)
+   - Updates
+   - [Subscriptions](https://braid.org/protocol/subscription)
+   - Multiresponse
+   - [Reliable Updates](https://braid.org/protocol/reliable-updates)
+- Applications:
+  - Text sync (dt & [simpleton](https://braid.org/protocol/simpleton) merge types
+  - [Multiplayer cursors](https://braid.org/protocol/cursors)
+  - [Webindex](https://braid.org/protocol/web-index)
 
 You tell it what command to run with `--cmd`, and it spawns that command as a subprocess, communicating via JSON-lines over stdin/stdout.
 
