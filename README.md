@@ -9,7 +9,7 @@ Currently tests:
 - Core Braid-HTTP
    - [Versions](https://datatracker.ietf.org/doc/html/draft-toomim-httpbis-versions)
    - Updates
-   - [Subscriptions](https://braid.org/protocol/subscription)
+   - [Subscriptions](https://braid.org/protocol/subscriptions)
    - Multiresponse
    - [Reliable Updates](https://braid.org/protocol/reliable-updates)
 - Applications:
