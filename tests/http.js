@@ -1,6 +1,6 @@
 // Test Suite: HTTP
 //
-// Basic HTTP tests — can the client make braid_fetch requests?
+// Basic HTTP tests — can the client make open-http requests?
 // This is the lowest layer, below subscription parsing or reliable updates.
 
 var { assert_truthy, wait_for } = require("../lib/assertions")
@@ -17,7 +17,7 @@ module.exports = [
                 if (url === doc) connected = true
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -41,7 +41,7 @@ module.exports = [
             }
 
             var peer = Math.random().toString(36).slice(2)
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 method: "PUT",
                 version: [peer + "-1"],
@@ -50,7 +50,7 @@ module.exports = [
                 headers: { "Merge-Type": "simpleton" }
             })
 
-            await wait_for(() => client.fetch_acks.length >= 1,
+            await wait_for(() => client.acks.length >= 1,
                 { timeout_ms: 5000, msg: "Client should receive PUT acknowledgment" })
 
             assert_truthy(received >= 1, "Server should have received the PUT")

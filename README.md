@@ -94,15 +94,14 @@ Run these tests with:
 braid-fuzz <launch-client.sh> http
 ```
 
-These test your client's `braid_fetch` — can it open subscriptions, close them, and send PUTs?
+These test your client's `braid_fetch` — can it open an HTTP request and send a PUT?
 
 Commands to implement:
 
 | Command | JSON `cmd` | What to do |
 |---------|-----------|------------|
-| **Open subscription** | `braid_fetch` | Call `braid_fetch(url, {subscribe: true, ...})`. Push each update back as a `fetch-update` event. |
-| **Close subscription** | `unsubscribe` | Abort the most recent `braid_fetch` subscription. |
-| **Send PUT** | `braid_fetch` | Call `braid_fetch(url, {method: "PUT", version, parents, patches, ...})`. Push result as `fetch-ack`. |
+| **Open HTTP request** | `open-http` | Call `braid_fetch(url, {subscribe: true, ...})`. Push each update back as an `update` event. |
+| **Send PUT** | `open-http` | Call `braid_fetch(url, {method: "PUT", version, parents, patches, ...})`. Push result as `ack`. |
 
 #### Subscriptions Tests
 
@@ -111,7 +110,11 @@ Run these tests with:
 braid-fuzz <launch-client.sh> subscriptions
 ```
 
-These test subscription parsing in detail — snapshots, incremental patches, multi-patch updates, Patches: 0, Parents header. Uses the same `braid_fetch` and `unsubscribe` commands as HTTP.
+These test subscription parsing in detail — snapshots, incremental patches, multi-patch updates, Patches: 0, Parents header. Uses the same `open-http` command as HTTP, plus:
+
+| Command | JSON `cmd` | What to do |
+|---------|-----------|------------|
+| **Close HTTP request** | `close-http` | Abort the current `braid_fetch` subscription. |
 
 #### Reliable Updates Tests
 
@@ -120,7 +123,7 @@ Run these tests with:
 braid-fuzz <launch-client.sh> reliable-updates
 ```
 
-These test reconnection, retry, heartbeat detection, and PUT retry. Uses the same `braid_fetch` and `unsubscribe` commands. Your `braid_fetch` needs to handle retry and heartbeat liveness.
+These test reconnection, retry, heartbeat detection, and PUT retry. Uses the same `open-http` and `close-http` commands. Your `braid_fetch` needs to handle retry and heartbeat liveness.
 
 #### Text Sync (Simpleton) Tests and Commands
 
@@ -135,11 +138,11 @@ Commands to implement:
 
 | Command | JSON `cmd` | What to do |
 |---------|-----------|------------|
-| **Sync text** | `simpleton` | Start a `simpleton_client` subscription to the given URL. |
-| **End sync** | `kill-sub` | Abort the simpleton subscription. |
-| **Edit** | `replace` | Edit the local buffer at `pos`, removing `len` chars, inserting `text`. Triggers a PUT via `simpleton.changed()`. |
-| **Send text** | `state` | Respond with `{"state": "current buffer text"}`. |
-| **Ack** | `wait-ack` | Block until all pending PUTs are acknowledged. |
+| **Sync text** | `sync-text` | Start a `simpleton_client` subscription to the given URL. |
+| **End sync** | `end-sync` | Abort the simpleton subscription. |
+| **Edit** | `edit` | Edit the local buffer at `pos`, removing `len` chars, inserting `text`. Triggers a PUT via `simpleton.changed()`. |
+| **Send text** | `send-text` | Respond with `{"state": "current buffer text"}`. |
+| **Ack** | `ack` | Block until all pending PUTs are acknowledged. |
 
 
 
@@ -160,7 +163,7 @@ Controller                              braid-fuzz
   |  {"id":1, "ok":true}                    |
   |  ────────────────────────────────────>  |
   |                                         |
-  |  {"id":2,"cmd":"braid_fetch","url":..}  |
+  |  {"id":2,"cmd":"open-http","url":..}     |
   |  <────────────────────────────────────  |
   |                                         |
   |  {"id":2, "ok":true}                    |
@@ -169,7 +172,7 @@ Controller                              braid-fuzz
   |  (updates arrive from braid server —    |
   |   controller forwards them as events)   |
   |                                         |
-  |  {"event":"fetch-update", ...}          |
+  |  {"event":"update", ...}                |
   |  ────────────────────────────────────>  |
   |                                         |
   |  ... more commands and events ...       |
@@ -201,10 +204,10 @@ Respond with `{"id": 1, "ok": true}`. This is the first command sent, used by th
 
 Sent when all tests are done. The command includes the full test results. Respond with `ok`, then clean up and exit.
 
-#### `braid_fetch` — Call the client's braid_fetch
+#### `open-http` — Call the client's braid_fetch
 
 ```json
-{"id": 1, "cmd": "braid_fetch", "url": "http://...", "subscribe": true, "headers": {"Merge-Type": "simpleton"}}
+{"id": 1, "cmd": "open-http", "url": "http://...", "subscribe": true, "headers": {"Merge-Type": "simpleton"}}
 ```
 
 Mirrors the `braid_fetch` API directly. The client should call its `braid_fetch` function with the given options.
@@ -221,7 +224,7 @@ Mirrors the `braid_fetch` API directly. The client should call its `braid_fetch`
 
 **For subscriptions** (`subscribe: true`), push updates as they arrive:
 ```json
-{"event": "fetch-update", "data": {"version": [...], "parents": [...], "body": "...", "patches": [...]}}
+{"event": "update", "data": {"version": [...], "parents": [...], "body": "...", "patches": [...]}}
 ```
 
 The `data` object should include:
@@ -232,28 +235,28 @@ The `data` object should include:
 
 **For PUTs** (`method: "PUT"`), push the result:
 ```json
-{"event": "fetch-ack", "data": {"status": 200}}
+{"event": "ack", "data": {"status": 200}}
 ```
 
 **On errors** (either type):
 ```json
-{"event": "fetch-error", "data": {"message": "..."}}
+{"event": "error", "data": {"message": "..."}}
 ```
 
 Used by subscription, reliable-updates, and PUT tests.
 
-#### `unsubscribe` — Abort a braid_fetch subscription
+#### `close-http` — Abort a braid_fetch subscription
 
 ```json
-{"id": 2, "cmd": "unsubscribe"}
+{"id": 2, "cmd": "close-http"}
 ```
 
 Aborts the current `braid_fetch` subscription.
 
-#### `simpleton` — Open a simpleton subscription
+#### `sync-text` — Open a simpleton subscription
 
 ```json
-{"id": 3, "cmd": "simpleton", "url": "http://127.0.0.1:4567/doc"}
+{"id": 3, "cmd": "sync-text", "url": "http://127.0.0.1:4567/doc"}
 ```
 
 | Field | Type   | Description |
@@ -262,10 +265,10 @@ Aborts the current `braid_fetch` subscription.
 
 The client should start a `simpleton_client` (or equivalent) subscription to the given URL, wiring up `on_state` / `get_state` callbacks so the local buffer tracks remote state. Used by simpleton tests.
 
-#### `replace` — Edit the local buffer
+#### `edit` — Edit the local buffer
 
 ```json
-{"id": 4, "cmd": "replace", "pos": 3, "len": 2, "text": "x"}
+{"id": 4, "cmd": "edit", "pos": 3, "len": 2, "text": "x"}
 ```
 
 | Field  | Type   | Description |
@@ -276,10 +279,10 @@ The client should start a `simpleton_client` (or equivalent) subscription to the
 
 Mutates the local buffer and triggers a PUT to the server (via `simpleton.changed()` or equivalent). Covers insert (`len: 0`), delete (`text: ""`), and replace.
 
-#### `state` — Return the current buffer contents
+#### `send-text` — Return the current buffer contents
 
 ```json
-{"id": 7, "cmd": "state"}
+{"id": 7, "cmd": "send-text"}
 ```
 
 Response **must** include a `state` field:
@@ -288,18 +291,18 @@ Response **must** include a `state` field:
 {"id": 7, "ok": true, "state": "current buffer text"}
 ```
 
-#### `wait-ack` — Block until all pending PUTs are acknowledged
+#### `ack` — Block until all pending PUTs are acknowledged
 
 ```json
-{"id": 8, "cmd": "wait-ack"}
+{"id": 8, "cmd": "ack"}
 ```
 
 The client must not respond until every previously triggered PUT has received an ACK from the server. If there are no pending PUTs, respond immediately.
 
-#### `kill-sub` — Tear down the active simpleton subscription
+#### `end-sync` — Tear down the active simpleton subscription
 
 ```json
-{"id": 9, "cmd": "kill-sub"}
+{"id": 9, "cmd": "end-sync"}
 ```
 
 Aborts the current simpleton subscription. Does **not** clear the local buffer.
@@ -325,9 +328,9 @@ Every response is a single JSON line containing the `id` from the command.
 
 **Unsolicited events** (no `id` — pushed proactively by the client):
 ```json
-{"event": "fetch-update", "data": {...}}
-{"event": "fetch-ack", "data": {"status": 200}}
-{"event": "fetch-error", "data": {"message": "..."}}
+{"event": "update", "data": {...}}
+{"event": "ack", "data": {"status": 200}}
+{"event": "error", "data": {"message": "..."}}
 ```
 
 See [examples/braid-text-simpleton-controller.js](examples/braid-text-simpleton-controller.js) for a complete reference implementation.

@@ -3,7 +3,7 @@
 // Tests for reliable update delivery: subscription reconnection,
 // heartbeat liveness detection, PUT retry, and PUT queue ordering.
 //
-// All tests use the "braid_fetch" command — with subscribe: true
+// All tests use the "open-http" command — with subscribe: true
 // for subscriptions, or method: "PUT" for PUTs.
 //
 // (See specs.md sections 1-10)
@@ -24,7 +24,7 @@ module.exports = [
                 if (url === doc) connections++
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -54,7 +54,7 @@ module.exports = [
                 if (url === doc) connections++
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -94,7 +94,7 @@ module.exports = [
                 }
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -118,7 +118,7 @@ module.exports = [
                 if (url === doc) connections++
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -151,7 +151,7 @@ module.exports = [
                 if (url === doc) connections++
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -160,7 +160,7 @@ module.exports = [
             await wait_for(() => connections >= 1,
                 { timeout_ms: 5000, msg: "Client should connect" })
 
-            await client.send("unsubscribe")
+            await client.send("close-http")
 
             var connections_after = connections
             await sleep(3000)
@@ -190,7 +190,7 @@ module.exports = [
                 }
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -220,7 +220,7 @@ module.exports = [
             var heartbeat_s = 2
             var expected_timeout_s = 1.2 * heartbeat_s + 3
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 heartbeats: heartbeat_s,
@@ -264,7 +264,7 @@ module.exports = [
                 if (url === doc) connections++
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -314,7 +314,7 @@ module.exports = [
                 }
             }
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -341,7 +341,7 @@ module.exports = [
             var proxy_port = proxy.listen_port
             await proxy.stop()
 
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 url: base_url + doc,
                 subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
@@ -374,7 +374,7 @@ module.exports = [
             }
 
             var peer = Math.random().toString(36).slice(2)
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 method: "PUT",
                 url: base_url + doc,
                 version: [peer + "-5"],
@@ -383,7 +383,7 @@ module.exports = [
                 headers: { "Merge-Type": "simpleton" }
             })
 
-            await wait_for(() => client.fetch_acks.length >= 1,
+            await wait_for(() => client.acks.length >= 1,
                 { timeout_ms: 5000, msg: "Client should receive PUT ACK" })
 
             assert_truthy(received_puts >= 1, "Server should have received the PUT")
@@ -405,7 +405,7 @@ module.exports = [
             server.ack_delay_ms = 5000
 
             var peer = Math.random().toString(36).slice(2)
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 method: "PUT",
                 url: base_url + doc,
                 version: [peer + "-5"],
@@ -424,7 +424,7 @@ module.exports = [
             proxy.set_mode("passthrough")
 
             // The PUT should be retried and eventually ACKed
-            await wait_for(() => client.fetch_acks.length >= 1,
+            await wait_for(() => client.acks.length >= 1,
                 { timeout_ms: 15000, msg: "Client should eventually receive PUT ACK after retry" })
 
             assert_truthy(received_puts >= 2,
@@ -451,7 +451,7 @@ module.exports = [
             }
 
             var peer = Math.random().toString(36).slice(2)
-            await client.send("braid_fetch", {
+            await client.send("open-http", {
                 method: "PUT",
                 url: base_url + doc,
                 version: [peer + "-5"],
@@ -460,7 +460,7 @@ module.exports = [
                 headers: { "Merge-Type": "simpleton" }
             })
 
-            await wait_for(() => client.fetch_acks.length >= 1,
+            await wait_for(() => client.acks.length >= 1,
                 { timeout_ms: 15000, msg: "Client should eventually receive PUT ACK after 503 retry" })
 
             assert_truthy(put_attempts >= 2,

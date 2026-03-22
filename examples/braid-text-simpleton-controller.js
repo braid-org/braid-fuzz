@@ -64,7 +64,7 @@ async function handle(msg) {
                 break
             }
 
-            case "simpleton": {
+            case "sync-text": {
                 buffer = ""
                 simpleton = simpleton_client(msg.url, {
                     on_state: (state) => { buffer = state },
@@ -87,7 +87,7 @@ async function handle(msg) {
                 break
             }
 
-            case "replace": {
+            case "edit": {
                 var chars = [...buffer]
                 var pos = Math.min(msg.pos || 0, chars.length)
                 var len = Math.min(msg.len || 0, chars.length - pos)
@@ -99,12 +99,12 @@ async function handle(msg) {
                 break
             }
 
-            case "state": {
+            case "send-text": {
                 reply(msg.id, { state: buffer })
                 break
             }
 
-            case "wait-ack": {
+            case "ack": {
                 if (pending_puts <= 0) {
                     reply(msg.id)
                 } else {
@@ -115,7 +115,7 @@ async function handle(msg) {
                 break
             }
 
-            case "kill-sub": {
+            case "end-sync": {
                 if (simpleton) simpleton.abort()
                 reply(msg.id)
                 break
@@ -128,7 +128,7 @@ async function handle(msg) {
 
             // ── Raw braid_fetch commands (for subscription tests) ──
 
-            case "braid_fetch": {
+            case "open-http": {
                 // Call braid_fetch with the given options.
                 // Mirrors the braid_fetch API directly:
                 //   msg.url: URL
@@ -141,12 +141,12 @@ async function handle(msg) {
                 //   msg.peer: peer ID (optional)
                 //
                 // For subscriptions (subscribe: true):
-                //   Updates are pushed as {"event": "fetch-update", ...}
-                //   Errors are pushed as {"event": "fetch-error", ...}
+                //   Updates are pushed as {"event": "update", ...}
+                //   Errors are pushed as {"event": "error", ...}
                 //
                 // For PUTs (method: "PUT"):
-                //   Success is pushed as {"event": "fetch-ack", ...}
-                //   Errors are pushed as {"event": "fetch-error", ...}
+                //   Success is pushed as {"event": "ack", ...}
+                //   Errors are pushed as {"event": "error", ...}
 
                 var method = (msg.method || "GET").toUpperCase()
                 var ac = new AbortController()
@@ -192,12 +192,12 @@ async function handle(msg) {
                         try {
                             var r = await braid_fetch(msg.url, fetch_opts)
                             process.stdout.write(JSON.stringify({
-                                event: "fetch-ack", data: { status: r.status }
+                                event: "ack", data: { status: r.status }
                             }) + "\n")
                         } catch (e) {
                             if (e.name === "AbortError") return
                             process.stdout.write(JSON.stringify({
-                                event: "fetch-error", data: { message: e.message || String(e) }
+                                event: "error", data: { message: e.message || String(e) }
                             }) + "\n")
                         }
                     })()
@@ -225,18 +225,18 @@ async function handle(msg) {
                                 item.extra_headers = update.extra_headers
                             }
                             process.stdout.write(JSON.stringify({
-                                event: "fetch-update", data: item
+                                event: "update", data: item
                             }) + "\n")
                         }, (e) => {
                             if (e.name === "AbortError") return
                             process.stdout.write(JSON.stringify({
-                                event: "fetch-error", data: { message: e.message || String(e) }
+                                event: "error", data: { message: e.message || String(e) }
                             }) + "\n")
                         })
                     }).catch(e => {
                         if (e.name === "AbortError") return
                         process.stdout.write(JSON.stringify({
-                            event: "fetch-error", name, data: { message: e.message || String(e) }
+                            event: "error", name, data: { message: e.message || String(e) }
                         }) + "\n")
                     })
                 }
@@ -245,7 +245,7 @@ async function handle(msg) {
                 break
             }
 
-            case "unsubscribe": {
+            case "close-http": {
                 // Abort the current braid_fetch subscription.
                 if (current_fetch) {
                     current_fetch.ac.abort()
