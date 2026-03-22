@@ -214,25 +214,42 @@ module.exports = [
                 if (url === doc) connections++
             }
 
-            server.heartbeat_seconds = 2
+            // Use a short heartbeat so the test doesn't take too long.
+            // Client should set timeout = 1.2 * N + 3 seconds.
+            // With N=2: timeout = 5.4s
+            var heartbeat_s = 2
+            var expected_timeout_s = 1.2 * heartbeat_s + 3
 
             await client.send("braid_fetch", {
                 url: base_url + doc,
                 subscribe: true,
+                heartbeats: heartbeat_s,
                 headers: { "Merge-Type": "simpleton" }
             })
 
             await wait_for(() => connections >= 1,
                 { timeout_ms: 5000, msg: "Client should connect" })
 
+            // Wait for at least one heartbeat to arrive so the client
+            // has established its liveness timer
+            await sleep(heartbeat_s * 1000 + 500)
+
+            // Blackhole — no more data reaches the client.
+            // Don't disconnect_all() — the client must detect this on
+            // its own via the heartbeat timeout.
             proxy.set_mode("blackhole")
-            await sleep(1000)
+
+            // The heartbeat timeout fires after ~expected_timeout_s.
+            // The client will retry while still blackholed — those
+            // retry connections get swallowed. After restoring passthrough,
+            // disconnect stale sockets so the next retry gets a clean path.
+            await sleep((expected_timeout_s + 2) * 1000)
             proxy.set_mode("passthrough")
+            proxy.disconnect_all()
 
             await wait_for(() => connections >= 2,
                 { timeout_ms: 15000, msg: "Client should reconnect after heartbeat timeout detects blackhole" })
 
-            server.heartbeat_seconds = 0
             server._on_subscribe = null
         }
     },

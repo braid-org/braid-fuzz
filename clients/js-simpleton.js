@@ -162,6 +162,7 @@ async function handle(msg) {
                     fetch_opts.retry = () => true
                     fetch_opts.parents = () => last_version
                 }
+                if (msg.heartbeats != null) fetch_opts.heartbeats = msg.heartbeats
 
                 if (msg.version) {
                     var v = msg.version
