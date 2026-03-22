@@ -66,12 +66,9 @@ var cmd_args = cmd_parts.slice(1).map(s => s.replace(/^"|"$/g, ""))
 
 // ── Load test suites ────────────────────────────────────────────
 
-var suites = [
-
-    { name: "Subscriptions",   tests: require("./tests/subscriptions") },
-    { name: "Reliable Updates", tests: require("./tests/reliable-updates") },
-    { name: "Simpleton",       tests: require("./tests/simpleton") },
-]
+var suites = require("fs").readdirSync(require("path").join(__dirname, "tests"))
+    .filter(f => f.endsWith(".js")).sort()
+    .map(f => ({ name: f.slice(0, -3), tests: require("./tests/" + f) }))
 
 var all_tests = []
 for (var suite of suites) {

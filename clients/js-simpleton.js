@@ -60,6 +60,11 @@ function reply_error(id, msg) {
 async function handle(msg) {
     try {
         switch (msg.cmd) {
+            case "hello": {
+                reply(msg.id)
+                break
+            }
+
             case "simpleton": {
                 buffer = ""
                 simpleton = simpleton_client(msg.url, {
