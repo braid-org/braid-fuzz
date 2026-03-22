@@ -124,106 +124,118 @@ async function handle(msg) {
 
             // ── Raw braid_fetch commands (for subscription tests) ──
 
-            case "subscribe": {
-                // Start a braid_fetch subscription.
-                // Updates are pushed proactively as unsolicited events.
-                // msg.url: URL to subscribe to
-                // msg.headers: extra headers to send (optional)
-                var name = msg.name || ("sub-" + (++fetch_counter))
+            case "braid_fetch": {
+                // Call braid_fetch with the given options.
+                // Mirrors the braid_fetch API directly:
+                //   msg.url: URL
+                //   msg.method: "GET" (default) or "PUT"
+                //   msg.subscribe: true to open a subscription
+                //   msg.version: version array (for PUTs)
+                //   msg.parents: parent version array (for PUTs)
+                //   msg.patches: array of { unit, range, content } (for PUTs)
+                //   msg.headers: extra headers (optional)
+                //   msg.peer: peer ID (optional)
+                //
+                // For subscriptions (subscribe: true):
+                //   Updates are pushed as {"event": "fetch-update", ...}
+                //   Errors are pushed as {"event": "fetch-error", ...}
+                //
+                // For PUTs (method: "PUT"):
+                //   Success is pushed as {"event": "fetch-ack", ...}
+                //   Errors are pushed as {"event": "fetch-error", ...}
+
+                var name = msg.name || ("fetch-" + (++fetch_counter))
+                var method = (msg.method || "GET").toUpperCase()
                 var ac = new AbortController()
                 var last_version = null
 
                 fetch_subscriptions.set(name, { ac })
 
                 var fetch_opts = {
-                    subscribe: true,
+                    method,
                     headers: msg.headers || {},
                     signal: ac.signal,
-                    retry: () => true,
-                    parents: () => last_version,
                 }
 
-                braid_fetch(msg.url, fetch_opts).then(res => {
-                    res.subscribe(update => {
-                        if (update.version) last_version = update.version
+                if (msg.subscribe) {
+                    fetch_opts.subscribe = true
+                    fetch_opts.retry = () => true
+                    fetch_opts.parents = () => last_version
+                }
 
-                        // Serialize and push to the test harness
-                        var item = {
-                            version: update.version || null,
-                            parents: update.parents || null,
+                if (msg.version) {
+                    var v = msg.version
+                    fetch_opts.version = typeof v === "string" ? [v] : v
+                }
+                if (msg.parents) {
+                    var p = msg.parents
+                    fetch_opts.parents = typeof p === "string" ? [p] : p
+                }
+                if (msg.patches) {
+                    fetch_opts.patches = msg.patches.map(p => ({
+                        unit: p.unit || "text",
+                        range: p.range,
+                        content: p.content,
+                    }))
+                }
+                if (msg.peer) fetch_opts.peer = msg.peer
+
+                if (method === "PUT") {
+                    // PUT: retry by default (except 550)
+                    if (!fetch_opts.retry) fetch_opts.retry = (res) => res.status !== 550
+
+                    ;(async () => {
+                        try {
+                            var r = await braid_fetch(msg.url, fetch_opts)
+                            process.stdout.write(JSON.stringify({
+                                event: "fetch-ack", name, data: { status: r.status }
+                            }) + "\n")
+                        } catch (e) {
+                            if (e.name === "AbortError") return
+                            process.stdout.write(JSON.stringify({
+                                event: "fetch-error", name, data: { message: e.message || String(e) }
+                            }) + "\n")
                         }
-                        if (update.patches) {
-                            item.patches = update.patches.map(p => ({
-                                range: p.range ? p.range.match(/\d+/g).map(Number) : null,
-                                content: p.content_text,
-                                unit: p.unit || null,
-                            }))
-                        }
-                        if (update.body != null) {
-                            item.body = update.body_text
-                        }
-                        if (update.extra_headers) {
-                            item.extra_headers = update.extra_headers
-                        }
-                        // Push as unsolicited event (no id)
-                        process.stdout.write(JSON.stringify({
-                            event: "fetch-update", name, data: item
-                        }) + "\n")
-                    }, (e) => {
+                    })()
+                } else {
+                    // GET (subscription): stream updates
+                    braid_fetch(msg.url, fetch_opts).then(res => {
+                        res.subscribe(update => {
+                            if (update.version) last_version = update.version
+
+                            var item = {
+                                version: update.version || null,
+                                parents: update.parents || null,
+                            }
+                            if (update.patches) {
+                                item.patches = update.patches.map(p => ({
+                                    range: p.range ? p.range.match(/\d+/g).map(Number) : null,
+                                    content: p.content_text,
+                                    unit: p.unit || null,
+                                }))
+                            }
+                            if (update.body != null) {
+                                item.body = update.body_text
+                            }
+                            if (update.extra_headers) {
+                                item.extra_headers = update.extra_headers
+                            }
+                            process.stdout.write(JSON.stringify({
+                                event: "fetch-update", name, data: item
+                            }) + "\n")
+                        }, (e) => {
+                            if (e.name === "AbortError") return
+                            process.stdout.write(JSON.stringify({
+                                event: "fetch-error", name, data: { message: e.message || String(e) }
+                            }) + "\n")
+                        })
+                    }).catch(e => {
                         if (e.name === "AbortError") return
                         process.stdout.write(JSON.stringify({
                             event: "fetch-error", name, data: { message: e.message || String(e) }
                         }) + "\n")
                     })
-                }).catch(e => {
-                    if (e.name === "AbortError") return
-                    process.stdout.write(JSON.stringify({
-                        event: "fetch-error", name, data: { message: e.message || String(e) }
-                    }) + "\n")
-                })
-
-                reply(msg.id, { name })
-                break
-            }
-
-            case "put": {
-                // Send a braid PUT via braid_fetch.
-                // msg.url: URL to PUT to
-                // msg.version: version string or array
-                // msg.parents: parents string or array
-                // msg.patches: array of { unit, range, content }
-                // msg.headers: extra headers (optional)
-                // msg.retry: whether to retry (default true)
-                var name = msg.name || ("put-" + (++fetch_counter))
-
-                var version = msg.version
-                if (typeof version === "string") version = [version]
-                var parents = msg.parents
-                if (typeof parents === "string") parents = [parents]
-
-                var patches = (msg.patches || []).map(p => ({
-                    unit: p.unit || "text",
-                    range: p.range,
-                    content: p.content,
-                }))
-
-                ;(async () => {
-                    try {
-                        var r = await braid_fetch(msg.url, {
-                            method: "PUT",
-                            version, parents, patches,
-                            headers: msg.headers || {},
-                            retry: msg.retry === false ? false : (res) => res.status !== 550,
-                        })
-                        process.stdout.write(JSON.stringify({
-                            event: "put-ack", name, data: { status: r.status }
-                        }) + "\n")
-                    } catch (e) {
-                        process.stdout.write(JSON.stringify({
-                            event: "put-error", name, data: { message: e.message || String(e) }
-                        }) + "\n")
-                    }
-                })()
+                }
 
                 reply(msg.id, { name })
                 break

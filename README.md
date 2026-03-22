@@ -63,7 +63,7 @@ Tests are organized into three layers, from lowest to highest:
 
 ### Subscriptions
 
-Tests for braid subscription parsing — the core protocol layer. These use the `subscribe` command to test the client's `braid_fetch` directly, independent of any merge protocol.
+Tests for braid subscription parsing — the core protocol layer. These use the `braid_fetch` command with `subscribe: true` to test the client's `braid_fetch` directly, independent of any merge protocol.
 
 | Test | Description |
 |------|-------------|
@@ -76,7 +76,7 @@ Tests for braid subscription parsing — the core protocol layer. These use the 
 
 ### Reliable Updates
 
-Tests for reliable update delivery: subscription reconnection, heartbeat liveness, and PUT retry. Subscription tests use `subscribe`; PUT tests use the `put` command to send raw braid PUTs via `braid_fetch`.
+Tests for reliable update delivery: subscription reconnection, heartbeat liveness, and PUT retry. All tests use the `braid_fetch` command — with `subscribe: true` for subscriptions, or `method: "PUT"` for PUTs.
 
 | Test | Description |
 |------|-------------|
@@ -138,7 +138,7 @@ Client                                  Fuzz Server
   |                                         |
   |  {"session": "abc123"}                  |
   |  <────────────────────────────────────  |
-  |  {"id":1, "cmd":"subscribe", "url":..}  |
+  |  {"id":1,"cmd":"braid_fetch","url":..}   |
   |  <────────────────────────────────────  |
   |                                         |
   |  PUT /fuzz?session=abc123               |
@@ -164,21 +164,28 @@ Client                                  Fuzz Server
 
 Every command includes an `id` (integer, assigned by the server) and a `cmd` (string). The client must echo back the same `id` in its response.
 
-#### `subscribe` — Start a braid subscription
+#### `braid_fetch` — Call the client's braid_fetch
 
 ```json
-{"id": 1, "cmd": "subscribe", "url": "http://...", "headers": {"Merge-Type": "simpleton"}}
+{"id": 1, "cmd": "braid_fetch", "url": "http://...", "subscribe": true, "headers": {"Merge-Type": "simpleton"}}
 ```
+
+Mirrors the `braid_fetch` API directly. The client should call its `braid_fetch` function with the given options.
 
 | Field | Type   | Description |
 |-------|--------|-------------|
-| `url` | string | Full HTTP URL to subscribe to |
-| `headers` | object | Extra headers to send with the GET request (optional) |
+| `url` | string | Full HTTP URL |
+| `method` | string | `"GET"` (default) or `"PUT"` |
+| `subscribe` | boolean | `true` to open a subscription (GET only) |
+| `version` | array | Version strings (PUT only) |
+| `parents` | array | Parent version strings (PUT only) |
+| `patches` | array | Array of `{unit, range, content}` (PUT only) |
+| `headers` | object | Extra headers (optional) |
+| `name` | string | Name for this fetch (optional, auto-generated if omitted) |
 
-The client should start a `braid_fetch` subscription to the given URL with `subscribe: true`. As updates arrive, the client must **push them proactively** as unsolicited messages (no `id`):
-
+**For subscriptions** (`subscribe: true`), push updates as they arrive:
 ```json
-{"event": "fetch-update", "name": "sub-1", "data": {"version": [...], "parents": [...], "body": "...", "patches": [...]}}
+{"event": "fetch-update", "name": "fetch-1", "data": {"version": [...], "parents": [...], "body": "...", "patches": [...]}}
 ```
 
 The `data` object should include:
@@ -187,46 +194,25 @@ The `data` object should include:
 - `body` — the full body text (for snapshot updates)
 - `patches` — array of `{range: [start, end], content: "..."}` (for incremental updates)
 
-On errors, push:
+**For PUTs** (`method: "PUT"`), push the result:
 ```json
-{"event": "fetch-error", "name": "sub-1", "data": {"message": "..."}}
+{"event": "fetch-ack", "name": "fetch-2", "data": {"status": 200}}
 ```
 
-Used by subscription and reconnect tests.
-
-#### `unsubscribe` — Abort a subscription
-
+**On errors** (either type):
 ```json
-{"id": 2, "cmd": "unsubscribe", "name": "sub-1"}
+{"event": "fetch-error", "name": "fetch-1", "data": {"message": "..."}}
 ```
 
-Aborts the subscription started by a previous `subscribe` command. If `name` is omitted, aborts the most recent subscription.
+Used by subscription, reliable-updates, and PUT tests.
 
-#### `put` — Send a braid PUT
+#### `unsubscribe` — Abort a braid_fetch subscription
 
 ```json
-{"id": 3, "cmd": "put", "url": "http://...", "version": ["peer-5"], "parents": [], "patches": [{"unit": "text", "range": "[0:0]", "content": "hello"}]}
+{"id": 2, "cmd": "unsubscribe", "name": "fetch-1"}
 ```
 
-| Field | Type   | Description |
-|-------|--------|-------------|
-| `url` | string | Full HTTP URL to PUT to |
-| `version` | array | Version strings for this update |
-| `parents` | array | Parent version strings |
-| `patches` | array | Array of `{unit, range, content}` patches |
-| `headers` | object | Extra headers (optional) |
-
-The client should send a braid PUT via `braid_fetch` with retry. On success, push:
-```json
-{"event": "put-ack", "name": "put-1", "data": {"status": 200}}
-```
-
-On error, push:
-```json
-{"event": "put-error", "name": "put-1", "data": {"message": "..."}}
-```
-
-Used by reliable-updates PUT tests.
+Aborts the subscription started by a previous `braid_fetch` command. If `name` is omitted, aborts the most recent one.
 
 #### `simpleton` — Open a simpleton subscription
 
@@ -311,10 +297,9 @@ Every response is a single JSON line containing the `id` from the command.
 
 **Unsolicited events** (no `id` — pushed proactively by the client):
 ```json
-{"event": "fetch-update", "name": "sub-1", "data": {...}}
-{"event": "fetch-error", "name": "sub-1", "data": {"message": "..."}}
-{"event": "put-ack", "name": "put-1", "data": {"status": 200}}
-{"event": "put-error", "name": "put-1", "data": {"message": "..."}}
+{"event": "fetch-update", "name": "fetch-1", "data": {...}}
+{"event": "fetch-ack", "name": "fetch-2", "data": {"status": 200}}
+{"event": "fetch-error", "name": "fetch-1", "data": {"message": "..."}}
 ```
 
 ### Writing a new client
@@ -323,7 +308,7 @@ Connect to the fuzz server with a long-lived GET and send responses via PUT. Any
 
 - All positions are **character offsets**, not byte offsets (relevant for multi-byte UTF-8).
 - Handle commands sequentially (respond to each before reading the next) except for `wait-ack`, which blocks until ACKs arrive.
-- For `subscribe` commands, push updates proactively as unsolicited events — don't wait to be asked.
+- For `braid_fetch` subscriptions, push updates proactively as unsolicited events — don't wait to be asked.
 - Unknown commands should return an error response, not crash.
 
 See [clients/js-simpleton.js](clients/js-simpleton.js) for a complete reference implementation.

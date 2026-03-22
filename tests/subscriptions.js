@@ -4,9 +4,9 @@
 // These test the client's braid_fetch / subscription parser directly,
 // independent of any merge protocol like simpleton.
 //
-// Uses the "subscribe" command to tell the client to open a braid_fetch
-// subscription. The client pushes each received update back to the
-// harness as it arrives, collected in client.updates[].
+// Uses the "braid_fetch" command with subscribe: true to test the
+// client's braid_fetch directly. The client pushes each received
+// update back to the harness as it arrives, collected in client.updates[].
 //
 // (See specs.md sections 2, 3, 5, 6)
 
@@ -21,8 +21,9 @@ module.exports = [
         async run({ server, proxy, client, doc, base_url }) {
             await server.insert_at(doc, 0, "hello world")
 
-            await client.send("subscribe", {
+            await client.send("braid_fetch", {
                 url: base_url + doc,
+                subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
             })
 
@@ -44,8 +45,9 @@ module.exports = [
         async run({ server, proxy, client, doc, base_url }) {
             await server.insert_at(doc, 0, "hello")
 
-            await client.send("subscribe", {
+            await client.send("braid_fetch", {
                 url: base_url + doc,
+                subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
             })
 
@@ -76,8 +78,9 @@ module.exports = [
         async run({ server, proxy, client, doc, base_url }) {
             await server.insert_at(doc, 0, "ABCDEF")
 
-            await client.send("subscribe", {
+            await client.send("braid_fetch", {
                 url: base_url + doc,
+                subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
             })
 
@@ -109,8 +112,9 @@ module.exports = [
         async run({ server, proxy, client, doc, base_url }) {
             await server.insert_at(doc, 0, "hello")
 
-            await client.send("subscribe", {
+            await client.send("braid_fetch", {
                 url: base_url + doc,
+                subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
             })
 
@@ -147,8 +151,9 @@ module.exports = [
         description: "Client subscribes with a Parents header; server sends only updates since that version (patches, not a full snapshot)",
         async run({ server, proxy, client, doc, base_url }) {
             // Subscribe first, then make two edits so we see distinct versions
-            await client.send("subscribe", {
+            await client.send("braid_fetch", {
                 url: base_url + doc,
+                subscribe: true,
                 headers: { "Merge-Type": "simpleton" },
                 name: "probe"
             })
@@ -175,8 +180,9 @@ module.exports = [
 
             // Now subscribe with Parents set to mid_version
             var parents_value = mid_version.map(v => '"' + v + '"').join(", ")
-            await client.send("subscribe", {
+            await client.send("braid_fetch", {
                 url: base_url + doc,
+                subscribe: true,
                 headers: { "Merge-Type": "simpleton", "Parents": parents_value }
             })
 
@@ -195,8 +201,9 @@ module.exports = [
         name: "Receive multiple updates in one stream",
         description: "Server makes several edits while subscribed; client receives all of them as separate updates in order",
         async run({ server, proxy, client, doc, base_url }) {
-            await client.send("subscribe", {
+            await client.send("braid_fetch", {
                 url: base_url + doc,
+                subscribe: true,
                 headers: { "Merge-Type": "simpleton" }
             })
 
