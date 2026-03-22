@@ -186,6 +186,49 @@ async function handle(msg) {
                 break
             }
 
+            case "put": {
+                // Send a braid PUT via braid_fetch.
+                // msg.url: URL to PUT to
+                // msg.version: version string or array
+                // msg.parents: parents string or array
+                // msg.patches: array of { unit, range, content }
+                // msg.headers: extra headers (optional)
+                // msg.retry: whether to retry (default true)
+                var name = msg.name || ("put-" + (++fetch_counter))
+
+                var version = msg.version
+                if (typeof version === "string") version = [version]
+                var parents = msg.parents
+                if (typeof parents === "string") parents = [parents]
+
+                var patches = (msg.patches || []).map(p => ({
+                    unit: p.unit || "text",
+                    range: p.range,
+                    content: p.content,
+                }))
+
+                ;(async () => {
+                    try {
+                        var r = await braid_fetch(msg.url, {
+                            method: "PUT",
+                            version, parents, patches,
+                            headers: msg.headers || {},
+                            retry: msg.retry === false ? false : (res) => res.status !== 550,
+                        })
+                        process.stdout.write(JSON.stringify({
+                            event: "put-ack", name, data: { status: r.status }
+                        }) + "\n")
+                    } catch (e) {
+                        process.stdout.write(JSON.stringify({
+                            event: "put-error", name, data: { message: e.message || String(e) }
+                        }) + "\n")
+                    }
+                })()
+
+                reply(msg.id, { name })
+                break
+            }
+
             case "unsubscribe": {
                 // Abort a subscription.
                 var name = msg.name

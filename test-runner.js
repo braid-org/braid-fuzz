@@ -70,7 +70,7 @@ var cmd_args = cmd_parts.slice(1).map(s => s.replace(/^"|"$/g, ""))
 var suites = [
 
     { name: "Subscriptions",   tests: require("./tests/subscriptions") },
-    { name: "Reconnects",      tests: require("./tests/reconnects") },
+    { name: "Reliable Updates", tests: require("./tests/reliable-updates") },
     { name: "Simpleton",       tests: require("./tests/simpleton") },
 ]
 

@@ -68,7 +68,7 @@ for (var i = 0; i < args.length; i++) {
 var suites = [
 
     { name: "Subscriptions",   tests: require("./tests/subscriptions") },
-    { name: "Reconnects",      tests: require("./tests/reconnects") },
+    { name: "Reliable Updates", tests: require("./tests/reliable-updates") },
     { name: "Simpleton",       tests: require("./tests/simpleton") },
 ]
 

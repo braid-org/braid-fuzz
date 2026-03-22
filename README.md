@@ -74,22 +74,25 @@ Tests for braid subscription parsing — the core protocol layer. These use the 
 | subscriptions-5 | Subscribe with Parents header — server resumes from version |
 | subscriptions-6 | Receive multiple updates in one stream — ordering verified |
 
-### Reconnects
+### Reliable Updates
 
-Tests for reliable reconnection: retry logic, error recovery, fault injection. Uses `subscribe` to test `braid_fetch` reconnection behavior directly.
+Tests for reliable update delivery: subscription reconnection, heartbeat liveness, and PUT retry. Subscription tests use `subscribe`; PUT tests use the `put` command to send raw braid PUTs via `braid_fetch`.
 
 | Test | Description |
 |------|-------------|
-| reconnects-1 | Reconnect after connection close |
-| reconnects-2 | Reconnect after TCP RST mid-stream |
-| reconnects-3 | 503 then recovery — client retries and succeeds |
-| reconnects-4 | Rapid disconnect cycling — 3 disconnects, reconnects each time |
-| reconnects-5 | Client can unsubscribe — no reconnect after unsubscribe |
-| reconnects-6 | 500 then recovery — warn and retry |
-| reconnects-7 | Blackhole detected via heartbeat timeout |
-| reconnects-8 | Close between patches — patch applied, then reconnect |
-| reconnects-9 | Multiple error statuses then recovery |
-| reconnects-10 | Reconnect after connection refused — proxy down then back |
+| reliable-updates-1 | Reconnect after connection close |
+| reliable-updates-2 | Reconnect after TCP RST mid-stream |
+| reliable-updates-3 | 503 then recovery |
+| reliable-updates-4 | Rapid disconnect cycling |
+| reliable-updates-5 | Client can unsubscribe |
+| reliable-updates-6 | 500 then recovery |
+| reliable-updates-7 | Blackhole detected via heartbeat timeout |
+| reliable-updates-8 | Close between patches |
+| reliable-updates-9 | Multiple error statuses then recovery |
+| reliable-updates-10 | Reconnect after connection refused |
+| reliable-updates-11 | PUT delivered successfully |
+| reliable-updates-12 | PUT retried after connection dies |
+| reliable-updates-13 | PUT retried after 503 |
 
 ### Simpleton
 
@@ -142,12 +145,15 @@ Client                                  Fuzz Server
   |  Body: {"id":1, "ok":true}              |
   |  ────────────────────────────────────>  |
   |                                         |
-  |  (client pushes updates as they arrive) |
+  |  (subscription updates arrive from the  |
+  |   braid server — client forwards them   |
+  |   to the fuzz server as events)         |
+  |                                         |
   |  PUT /fuzz?session=abc123               |
   |  Body: {"event":"fetch-update", ...}    |
   |  ────────────────────────────────────>  |
   |                                         |
-  |  ... more commands ...                  |
+  |  ... more commands and events ...       |
   |                                         |
   |  {"done":true, "results":[...], ...}    |
   |  <────────────────────────────────────  |
@@ -195,6 +201,32 @@ Used by subscription and reconnect tests.
 ```
 
 Aborts the subscription started by a previous `subscribe` command. If `name` is omitted, aborts the most recent subscription.
+
+#### `put` — Send a braid PUT
+
+```json
+{"id": 3, "cmd": "put", "url": "http://...", "version": ["peer-5"], "parents": [], "patches": [{"unit": "text", "range": "[0:0]", "content": "hello"}]}
+```
+
+| Field | Type   | Description |
+|-------|--------|-------------|
+| `url` | string | Full HTTP URL to PUT to |
+| `version` | array | Version strings for this update |
+| `parents` | array | Parent version strings |
+| `patches` | array | Array of `{unit, range, content}` patches |
+| `headers` | object | Extra headers (optional) |
+
+The client should send a braid PUT via `braid_fetch` with retry. On success, push:
+```json
+{"event": "put-ack", "name": "put-1", "data": {"status": 200}}
+```
+
+On error, push:
+```json
+{"event": "put-error", "name": "put-1", "data": {"message": "..."}}
+```
+
+Used by reliable-updates PUT tests.
 
 #### `simpleton` — Open a simpleton subscription
 
@@ -281,6 +313,8 @@ Every response is a single JSON line containing the `id` from the command.
 ```json
 {"event": "fetch-update", "name": "sub-1", "data": {...}}
 {"event": "fetch-error", "name": "sub-1", "data": {"message": "..."}}
+{"event": "put-ack", "name": "put-1", "data": {"status": 200}}
+{"event": "put-error", "name": "put-1", "data": {"message": "..."}}
 ```
 
 ### Writing a new client
@@ -303,7 +337,7 @@ braid-fuzz serve <cmd> -<pattern>         Run only tests matching pattern
 braid-fuzz client <cmd|url>               (coming soon) Test a braid server
 
 Options:
-  -<pattern>            Filter tests (e.g. -reconnects, -simpleton, -subscriptions-1)
+  -<pattern>            Filter tests (e.g. -reliable-updates, -simpleton, -subscriptions-1)
   --port <n>            Fuzz server port (default: 4444, server mode only)
   --timeout <ms>        Per-test timeout (default: 30000)
   --json                Output results as JSON
@@ -324,7 +358,7 @@ The final line of the GET response (with `"done": true`) contains the full resul
     {"id": "subscriptions-1", "name": "Receive snapshot body", "status": "pass", "duration_ms": 521},
     {"id": "simpleton-4", "name": "Concurrent edits converge", "status": "fail", "error": "...", "duration_ms": 10032}
   ],
-  "summary": {"passed": 22, "failed": 1, "skipped": 0, "total": 23}
+  "summary": {"passed": 25, "failed": 1, "skipped": 0, "total": 26}
 }
 ```
 
