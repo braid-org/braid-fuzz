@@ -8,7 +8,7 @@ Run your client through this gauntlet, and get back pass/fail results that an AI
 
 ```
 npm install
-braid-fuzz serve
+braid-fuzz
 ```
 
 This starts a server. Your client connects via WebSocket or TCP:
@@ -23,9 +23,9 @@ Tests run automatically when your client connects. See [Protocol](#protocol) bel
 You can also spawn your client as a subprocess:
 
 ```
-braid-fuzz serve "node ./clients/js-simpleton.js"
-braid-fuzz serve "node ./clients/js-simpleton.js" simpleton
-braid-fuzz serve "emacs --batch --load ./clients/emacs-agent.el"
+braid-fuzz "node ./clients/js-simpleton.js"
+braid-fuzz "node ./clients/js-simpleton.js" simpleton
+braid-fuzz "emacs --batch --load ./clients/emacs-agent.el"
 ```
 
 ## Architecture
@@ -308,11 +308,10 @@ See [clients/js-simpleton.js](clients/js-simpleton.js) for a complete reference 
 ## CLI
 
 ```
-braid-fuzz serve                          Start server, wait for client
-braid-fuzz serve <filter>                Start server, only run matching tests
-braid-fuzz serve <cmd>                    Spawn <cmd> as subprocess, run tests
-braid-fuzz serve <cmd> <filter>          Subprocess + filter
-braid-fuzz client <cmd|url>               (coming soon) Test a braid server
+braid-fuzz                                Start server, wait for client
+braid-fuzz <filter>                      Start server, only run matching tests
+braid-fuzz <cmd>                          Spawn <cmd> as subprocess, run tests
+braid-fuzz <cmd> <filter>                Subprocess + filter
 
 Options:
   --port <n>            WebSocket port (default: 4444, server mode only)
@@ -345,9 +344,9 @@ The final line of the GET response (with `"done": true`) contains the full resul
 In subprocess mode, the client reads JSON-line commands from stdin and writes JSON-line responses to stdout. The commands, responses, and unsolicited events are identical to server mode.
 
 ```
-braid-fuzz serve "node ./clients/js-simpleton.js"
-braid-fuzz serve "node ./clients/js-simpleton.js" simpleton
-braid-fuzz serve "node ./clients/js-simpleton.js" --json
+braid-fuzz "node ./clients/js-simpleton.js"
+braid-fuzz "node ./clients/js-simpleton.js" simpleton
+braid-fuzz "node ./clients/js-simpleton.js" --json
 ```
 
 In this mode, diagnostic output must go to **stderr** (stdout is the protocol channel).
