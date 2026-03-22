@@ -170,7 +170,8 @@ async function run_test(test, { server, proxy, base_url }) {
         client = create_client(base_url)
         await client.start()
 
-        if (test.needs_extra_client) {
+        var num_extra = test.needs_extra_clients || (test.needs_extra_client ? 1 : 0)
+        for (var ei = 0; ei < num_extra; ei++) {
             var extra = create_client(base_url)
             await extra.start()
             extra_clients.push(extra)

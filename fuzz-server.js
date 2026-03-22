@@ -287,9 +287,9 @@ async function run_test(test, { server, proxy, base_url, session, res }) {
         session.bridge = client
         await client.start()
 
-        // Extra clients (for multi-client tests like CMC) use the
-        // reference JS implementation as a local subprocess
-        if (test.needs_extra_client) {
+        // Extra clients use the reference JS implementation as local subprocesses
+        var num_extra = test.needs_extra_clients || (test.needs_extra_client ? 1 : 0)
+        for (var ei = 0; ei < num_extra; ei++) {
             var extra = new ClientBridge({
                 command: process.execPath,
                 args: [require("path").join(__dirname, "clients", "js-simpleton.js")],

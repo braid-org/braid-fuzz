@@ -103,6 +103,7 @@ Tests for the simpleton merge protocol: local edits, remote edits, concurrent co
 | simpleton-4 | Concurrent edits converge — both sides insert at pos 0 |
 | simpleton-5 | Interleaved edits — alternating client/server, all present |
 | simpleton-6 | Edit during reconnect — offline edit merges on reconnect |
+| simpleton-7 | Multi-client fuzz — 3 clients + server, random edits, all converge |
 
 ## Protocol
 
@@ -323,7 +324,7 @@ The final line of the GET response (with `"done": true`) contains the full resul
     {"id": "subscriptions-1", "name": "Receive snapshot body", "status": "pass", "duration_ms": 521},
     {"id": "simpleton-4", "name": "Concurrent edits converge", "status": "fail", "error": "...", "duration_ms": 10032}
   ],
-  "summary": {"passed": 21, "failed": 1, "skipped": 0, "total": 22}
+  "summary": {"passed": 22, "failed": 1, "skipped": 0, "total": 23}
 }
 ```
 

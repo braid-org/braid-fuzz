@@ -147,4 +147,60 @@ module.exports = [
         }
     },
 
+    {
+        id: "simpleton-7",
+        name: "Multi-client fuzz",
+        description: "3 clients + server all make random edits concurrently; all converge to the same state",
+        needs_extra_clients: 2,
+        async run({ server, client, doc, extra_clients }) {
+            var clients = [client, ...extra_clients]
+            var labels = ["alpha", "beta", "gamma"]
+            var edits = []  // track all edits for verification
+
+            // Connect all clients
+            for (var c of clients) {
+                await c.connect(doc)
+            }
+            await sleep(1000)
+
+            // 3 rounds: each round, every client and the server insert at pos 0
+            for (var round = 0; round < 3; round++) {
+                for (var ci = 0; ci < clients.length; ci++) {
+                    var text = `${labels[ci]}${round}`
+                    edits.push(text)
+                    await clients[ci].insert(0, text)
+                    await sleep(100)
+                }
+                // Server also inserts
+                var server_text = `server${round}`
+                edits.push(server_text)
+                await server.insert_at(doc, 0, server_text)
+                await sleep(300)
+            }
+
+            // Wait for all to converge
+            var converged = false
+            for (var attempt = 0; attempt < 60; attempt++) {
+                var states = []
+                for (var c of clients) states.push(await c.state())
+                states.push(await server.get_doc_state(doc))
+
+                if (states.every(s => s === states[0])) {
+                    converged = true
+                    break
+                }
+                await sleep(500)
+            }
+
+            assert_truthy(converged, "All 3 clients + server should converge")
+
+            // Verify all edits are present in the final state
+            var final_state = await client.state()
+            for (var text of edits) {
+                assert_truthy(final_state.includes(text),
+                    `Final state should contain "${text}"`)
+            }
+        }
+    },
+
 ]
