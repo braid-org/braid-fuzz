@@ -86,7 +86,7 @@ Tests for reliable reconnection: retry logic, error recovery, fault injection. U
 | reconnects-4 | Rapid disconnect cycling — 3 disconnects, reconnects each time |
 | reconnects-5 | Client can unsubscribe — no reconnect after unsubscribe |
 | reconnects-6 | 500 then recovery — warn and retry |
-| reconnects-7 | Blackhole then disconnect triggers reconnect |
+| reconnects-7 | Blackhole detected via heartbeat timeout |
 | reconnects-8 | Close between patches — patch applied, then reconnect |
 | reconnects-9 | Multiple error statuses then recovery |
 | reconnects-10 | Reconnect after connection refused — proxy down then back |

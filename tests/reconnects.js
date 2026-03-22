@@ -212,13 +212,17 @@ module.exports = [
 
     {
         id: "reconnects-7",
-        name: "Blackhole then disconnect triggers reconnect",
-        description: "Proxy blackholes traffic, then kills connections; client reconnects (specs.md 4.2)",
+        name: "Blackhole detected via heartbeat timeout",
+        description: "Proxy blackholes traffic; client detects dead connection via heartbeat timeout and reconnects (specs.md 4.2)",
         async run({ server, proxy, client, doc, base_url }) {
             var connections = 0
             server._on_subscribe = (req, res, url) => {
                 if (url === doc) connections++
             }
+
+            // Enable heartbeats with a short interval so the test doesn't take forever
+            // Client should set timeout = 1.2 * 2 + 3 = 5.4 seconds
+            server.heartbeat_seconds = 2
 
             await client.send("subscribe", {
                 url: base_url + doc,
@@ -228,18 +232,21 @@ module.exports = [
             await wait_for(() => connections >= 1,
                 { timeout_ms: 5000, msg: "Client should connect" })
 
-            // Blackhole — data goes nowhere, connection stays open
+            // Blackhole — data goes nowhere, connection stays open.
+            // The client should NOT receive any more heartbeats.
+            // No disconnect_all() — the client must detect this on its own
+            // via the heartbeat timeout.
             proxy.set_mode("blackhole")
-            await sleep(1000)
 
-            // Kill the blackholed connections so the client detects failure
-            proxy.disconnect_all()
-            await sleep(500)
+            // Wait for heartbeat timeout to fire + reconnect.
+            // Timeout should be ~5.4s, give it up to 15s.
+            await sleep(1000)
             proxy.set_mode("passthrough")
 
             await wait_for(() => connections >= 2,
-                { timeout_ms: 10000, msg: "Client should reconnect after blackhole + disconnect" })
+                { timeout_ms: 15000, msg: "Client should reconnect after heartbeat timeout detects blackhole" })
 
+            server.heartbeat_seconds = 0
             server._on_subscribe = null
         }
     },
