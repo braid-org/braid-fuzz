@@ -11,11 +11,12 @@ npm install
 braid-fuzz serve
 ```
 
-This starts an HTTP server. Your client connects to it with plain HTTP:
+This starts a server. Your client connects via WebSocket or TCP:
 
-1. `GET http://127.0.0.1:4444/fuzz` — opens a long-lived response streaming JSON-line commands
-2. Read the first line to get your `session` ID
-3. For each command, send your response as `PUT http://127.0.0.1:4444/fuzz?session=ID`
+- **WebSocket:** `ws://127.0.0.1:4444`
+- **TCP:** `127.0.0.1:4445`
+
+Both use the same protocol: newline-delimited JSON, bidirectional.
 
 Tests run automatically when your client connects. See [Protocol](#protocol) below for the full command reference.
 
@@ -110,54 +111,45 @@ Tests for the simpleton merge protocol: local edits, remote edits, concurrent co
 
 ## Protocol
 
-Your client connects via HTTP and communicates using newline-delimited JSON. No WebSockets, no SSE, no braid framing — just plain HTTP.
+Your client connects via WebSocket or TCP and communicates using newline-delimited JSON.
 
 ### Connecting
 
-1. **`GET /fuzz`** — opens a long-lived chunked response. The first line is a JSON object with a `session` field:
+Connect to the fuzz server via either transport:
 
-```json
-{"session": "abc123"}
-```
+- **WebSocket:** `ws://127.0.0.1:4444` (or `ws://127.0.0.1:4444?filter=simpleton`)
+- **TCP:** `127.0.0.1:4445`
 
-Save this session ID. All subsequent PUT requests must include it.
+Once connected, the server immediately starts streaming JSON-line commands. Each command has an `id` and `cmd` field. Send your response as a JSON line back on the same connection.
 
-2. After the session line, the server streams JSON-line commands (one per line). Each command has an `id` and `cmd` field.
-
-3. **`PUT /fuzz?session=abc123`** — send your response as the PUT body (a single JSON line). You can also pass the session as an `X-Session-Id` header instead of a query parameter.
-
-4. When all tests finish, the server sends a final line with `"done": true` and the results summary, then closes the GET response.
+When all tests finish, the server sends a final line with `"done": true` and the results summary, then closes the connection.
 
 ### Example flow
 
 ```
 Client                                  Fuzz Server
   |                                         |
-  |  GET /fuzz                              |
+  |  (connect via WebSocket or TCP)         |
   |  ────────────────────────────────────>  |
   |                                         |
-  |  {"session": "abc123"}                  |
-  |  <────────────────────────────────────  |
-  |  {"id":1,"cmd":"braid_fetch","url":..}   |
+  |  {"id":1,"cmd":"braid_fetch","url":..}  |
   |  <────────────────────────────────────  |
   |                                         |
-  |  PUT /fuzz?session=abc123               |
-  |  Body: {"id":1, "ok":true}              |
+  |  {"id":1, "ok":true}                    |
   |  ────────────────────────────────────>  |
   |                                         |
   |  (subscription updates arrive from the  |
   |   braid server — client forwards them   |
   |   to the fuzz server as events)         |
   |                                         |
-  |  PUT /fuzz?session=abc123               |
-  |  Body: {"event":"fetch-update", ...}    |
+  |  {"event":"fetch-update", ...}          |
   |  ────────────────────────────────────>  |
   |                                         |
   |  ... more commands and events ...       |
   |                                         |
   |  {"done":true, "results":[...], ...}    |
   |  <────────────────────────────────────  |
-  |  (GET response ends)                    |
+  |  (connection closes)                    |
 ```
 
 ### Commands (server → client)
@@ -304,7 +296,7 @@ Every response is a single JSON line containing the `id` from the command.
 
 ### Writing a new client
 
-Connect to the fuzz server with a long-lived GET and send responses via PUT. Any language with an HTTP client can do this. Key points:
+Connect to the fuzz server via WebSocket or TCP and exchange JSON lines. Any language can do this. Key points:
 
 - All positions are **character offsets**, not byte offsets (relevant for multi-byte UTF-8).
 - Handle commands sequentially (respond to each before reading the next) except for `wait-ack`, which blocks until ACKs arrive.
@@ -323,14 +315,15 @@ braid-fuzz client <cmd|url>               (coming soon) Test a braid server
 
 Options:
   -<pattern>            Filter tests (e.g. -reliable-updates, -simpleton, -subscriptions-1)
-  --port <n>            Fuzz server port (default: 4444, server mode only)
+  --port <n>            WebSocket port (default: 4444, server mode only)
+  --tcp-port <n>        TCP port (default: 4445, server mode only)
   --timeout <ms>        Per-test timeout (default: 30000)
   --json                Output results as JSON
   --server-port <n>     Fixed braid-text server port (default: auto)
   --proxy-port <n>      Fixed proxy port (default: auto)
 ```
 
-In server mode, you can also pass a filter via query string: `GET /fuzz?filter=simpleton`
+In server mode, you can also pass a filter via WebSocket query string: `ws://127.0.0.1:4444?filter=simpleton`
 
 ## JSON output
 

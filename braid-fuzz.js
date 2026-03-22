@@ -59,7 +59,7 @@ function run_serve(args) {
         var arg = args[i]
 
         // Passthrough options (with values)
-        if (arg === "--port" || arg === "--timeout" || arg === "--server-port" || arg === "--proxy-port") {
+        if (arg === "--port" || arg === "--tcp-port" || arg === "--timeout" || arg === "--server-port" || arg === "--proxy-port") {
             child_args.push(arg, args[++i])
         }
         // Passthrough flags
