@@ -3,10 +3,11 @@
 // braid-fuzz — unified CLI
 //
 // Usage:
-//   braid-fuzz serve                          Start HTTP server, clients connect to it
-//   braid-fuzz serve <cmd> [filter]           Spawn client subprocess and run tests
-//   braid-fuzz client <cmd>                   (coming soon) Test a server via subprocess
-//   braid-fuzz client <url>                   (coming soon) Test a server at a URL
+//   braid-fuzz serve                          Start server, clients connect to it
+//   braid-fuzz serve <filter>                Start server, only run matching tests
+//   braid-fuzz serve <cmd>                    Spawn client subprocess and run tests
+//   braid-fuzz serve <cmd> <filter>          Subprocess + filter
+//   braid-fuzz client <cmd|url>               (coming soon) Test a server
 
 var args = process.argv.slice(2)
 
@@ -15,13 +16,15 @@ if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
 braid-fuzz — test framework for braid-http implementations
 
 Usage:
-  braid-fuzz serve                        Start HTTP server, wait for client to connect
-  braid-fuzz serve <cmd> [options]        Spawn <cmd> as subprocess, run tests against it
-  braid-fuzz client <cmd|url>             (coming soon) Test a braid server implementation
+  braid-fuzz serve                        Start server, wait for client to connect
+  braid-fuzz serve <filter>              Start server, only run matching tests
+  braid-fuzz serve <cmd>                  Spawn <cmd> as subprocess, run tests
+  braid-fuzz serve <cmd> <filter>        Subprocess + filter
+  braid-fuzz client <cmd|url>             (coming soon) Test a braid server
 
 Options:
-  -<pattern>            Only run tests matching pattern (e.g. -reconnect, -BIS, -C)
-  --port <n>            Fuzz server port (default: 4444, server mode only)
+  --port <n>            WebSocket port (default: 4444, server mode only)
+  --tcp-port <n>        TCP port (default: 4445, server mode only)
   --timeout <ms>        Per-test timeout (default: 30000)
   --json                Output results as JSON
   --server-port <n>     Fixed braid-text server port (default: auto)
@@ -29,11 +32,22 @@ Options:
 
 Examples:
   braid-fuzz serve
+  braid-fuzz serve simpleton
   braid-fuzz serve "node ./clients/js-simpleton.js"
-  braid-fuzz serve "node ./clients/js-simpleton.js" -reconnect
-  braid-fuzz serve "emacs --batch --load ./clients/emacs-agent.el" -BIS
+  braid-fuzz serve "node ./clients/js-simpleton.js" reliable-updates
+  braid-fuzz serve my-client-script subscriptions-3
 `)
     process.exit(0)
+}
+
+// Test suite keywords — derived from filenames in tests/
+var test_keywords = new Set(require("fs").readdirSync(require("path").join(__dirname, "tests"))
+    .filter(f => f.endsWith(".js")).map(f => f.slice(0, -3)))
+
+function is_test_filter(arg) {
+    var lower = arg.toLowerCase()
+    var keyword = lower.replace(/-\d+$/, "")
+    return test_keywords.has(keyword)
 }
 
 var subcommand = args[0]
@@ -51,50 +65,40 @@ if (subcommand === "serve") {
 // ── serve ───────────────────────────────────────────────────────
 
 function run_serve(args) {
-    // Separate our -filter args from passthrough options
     var cmd = null
+    var filter = null
     var child_args = []
 
     for (var i = 0; i < args.length; i++) {
         var arg = args[i]
 
-        // Passthrough options (with values)
+        // Options with values
         if (arg === "--port" || arg === "--tcp-port" || arg === "--timeout" || arg === "--server-port" || arg === "--proxy-port") {
             child_args.push(arg, args[++i])
         }
-        // Passthrough flags
+        // Flags
         else if (arg === "--json") {
             child_args.push(arg)
         }
-        // Filter: -something (single dash, not a known option)
-        else if (arg.startsWith("-") && !arg.startsWith("--")) {
-            child_args.push("--filter", arg.slice(1))
+        // Recognized test filter
+        else if (is_test_filter(arg)) {
+            filter = arg
         }
-        // First non-option, non-flag argument is the command
+        // Everything else is the subprocess command
         else if (!cmd) {
             cmd = arg
         }
-        // Additional positional args are also treated as filter
-        else {
-            child_args.push("--filter", arg)
-        }
     }
 
-    if (!cmd) {
-        // Server mode — no subprocess
-        var { spawn } = require("child_process")
-        var child = spawn(process.execPath, [require("path").join(__dirname, "fuzz-server.js"), ...child_args], {
-            stdio: "inherit"
-        })
-        child.on("exit", (code) => process.exit(code || 0))
-    } else {
-        // Subprocess mode
-        var { spawn } = require("child_process")
-        var child = spawn(process.execPath, [require("path").join(__dirname, "test-runner.js"), "--cmd", cmd, ...child_args], {
-            stdio: "inherit"
-        })
-        child.on("exit", (code) => process.exit(code || 0))
-    }
+    var { spawn } = require("child_process")
+    var script = cmd
+        ? require("path").join(__dirname, "test-runner.js")
+        : require("path").join(__dirname, "fuzz-server.js")
+    var spawn_args = cmd ? ["--cmd", cmd, ...child_args] : [...child_args]
+    if (filter) spawn_args.push(filter)
+
+    var child = spawn(process.execPath, [script, ...spawn_args], { stdio: "inherit" })
+    child.on("exit", (code) => process.exit(code || 0))
 }
 
 // ── client (stub) ───────────────────────────────────────────────

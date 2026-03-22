@@ -24,7 +24,7 @@ You can also spawn your client as a subprocess:
 
 ```
 braid-fuzz serve "node ./clients/js-simpleton.js"
-braid-fuzz serve "node ./clients/js-simpleton.js" -simpleton
+braid-fuzz serve "node ./clients/js-simpleton.js" simpleton
 braid-fuzz serve "emacs --batch --load ./clients/emacs-agent.el"
 ```
 
@@ -308,13 +308,13 @@ See [clients/js-simpleton.js](clients/js-simpleton.js) for a complete reference 
 ## CLI
 
 ```
-braid-fuzz serve                          Start HTTP server, wait for client
+braid-fuzz serve                          Start server, wait for client
+braid-fuzz serve <filter>                Start server, only run matching tests
 braid-fuzz serve <cmd>                    Spawn <cmd> as subprocess, run tests
-braid-fuzz serve <cmd> -<pattern>         Run only tests matching pattern
+braid-fuzz serve <cmd> <filter>          Subprocess + filter
 braid-fuzz client <cmd|url>               (coming soon) Test a braid server
 
 Options:
-  -<pattern>            Filter tests (e.g. -reliable-updates, -simpleton, -subscriptions-1)
   --port <n>            WebSocket port (default: 4444, server mode only)
   --tcp-port <n>        TCP port (default: 4445, server mode only)
   --timeout <ms>        Per-test timeout (default: 30000)
@@ -346,7 +346,7 @@ In subprocess mode, the client reads JSON-line commands from stdin and writes JS
 
 ```
 braid-fuzz serve "node ./clients/js-simpleton.js"
-braid-fuzz serve "node ./clients/js-simpleton.js" -simpleton
+braid-fuzz serve "node ./clients/js-simpleton.js" simpleton
 braid-fuzz serve "node ./clients/js-simpleton.js" --json
 ```
 

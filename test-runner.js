@@ -44,7 +44,6 @@ var opts = {
 for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
         case "--cmd":        opts.cmd = args[++i]; break
-        case "--filter":     opts.filter = args[++i]; break
         case "--json":       opts.json = true; break
         case "--verbose":    opts.verbose = true; break
         case "--timeout":    opts.timeout = parseInt(args[++i]); break
@@ -78,8 +77,7 @@ var all_tests = []
 for (var suite of suites) {
     for (var test of suite.tests) {
         test._suite = suite.name
-        if (!opts.filter || test.id.toLowerCase().includes(opts.filter.toLowerCase()) ||
-            test.name.toLowerCase().includes(opts.filter.toLowerCase())) {
+        if (!opts.filter || test.id.toLowerCase().startsWith(opts.filter.toLowerCase())) {
             all_tests.push(test)
         }
     }

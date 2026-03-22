@@ -17,7 +17,7 @@
 // Options:
 //   --port <n>          WebSocket port (default: 4444)
 //   --tcp-port <n>      TCP port (default: 4445)
-//   --filter <pattern>  Only run tests matching pattern
+//   <filter>            Only run tests matching filter (e.g. simpleton, subscriptions-3)
 //   --json              Output results as JSON
 //   --timeout <ms>      Per-test timeout (default: 30000)
 //   --server-port <n>   Fixed braid-text server port (default: auto)
@@ -49,7 +49,6 @@ for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
         case "--port":        opts.port = parseInt(args[++i]); break
         case "--tcp-port":    opts.tcp_port = parseInt(args[++i]); break
-        case "--filter":      opts.filter = args[++i]; break
         case "--json":        opts.json = true; break
         case "--timeout":     opts.timeout = parseInt(args[++i]); break
         case "--server-port": opts.server_port = parseInt(args[++i]); break
@@ -73,8 +72,7 @@ function get_tests(filter) {
     for (var suite of suites) {
         for (var test of suite.tests) {
             test._suite = suite.name
-            if (!filter || test.id.toLowerCase().includes(filter.toLowerCase()) ||
-                test.name.toLowerCase().includes(filter.toLowerCase())) {
+            if (!filter || test.id.toLowerCase().startsWith(filter.toLowerCase())) {
                 all.push(test)
             }
         }
