@@ -4,28 +4,34 @@ Test framework for braid-http client implementations. Helps you build a new brai
 
 Run your client through this gauntlet, and get back pass/fail results that an AI agent (or human) can act on.
 
+## Instructions to build a client with braid-fuzz
+
+1. Connect your client to braid-fuzz
+  - Implement a `controller` in your client that lets braid-fuzz control it
+  - Write a headless `launch-script`, so braid-fuzz can launch your client and run tests automatically
+  - Test the basics with `braid-fuzz <launch-script> basics`
+2. Build and test one Braid-HTTP feature at a time
+  - (First, implement and test the prerequisites for your feature)
+  - Implement the feature itself
+  - Implement the controller commands to test the feature
+  - Test the feature with `braid-fuzz <launch-script> <feature-name>`
+  - Read the failed tests in the console.
+  - Fix the bugs! Iterate until tests pass.
+3. Run the full test-suite periodically to verify that prior features are still working with `braid-fuzz <launch-script> everything`
+
+See the example controller and launch script for braid-text simpleton: [braid-text-simpleton-controller.js](examples/braid-text-simpleton-controller.js), [braid-text-simpleton-launcher.sh](examples/braid-text-simpleton-launcher.sh).
+
 ## Quick start
 
 ```
 npm install
-braid-fuzz
-```
-
-This starts a server. Your client connects via WebSocket or TCP:
-
-- **WebSocket:** `ws://127.0.0.1:4444`
-- **TCP:** `127.0.0.1:4445`
-
-Both use the same protocol: newline-delimited JSON, bidirectional.
-
-Tests run automatically when your client connects. See [Protocol](#protocol) below for the full command reference.
-
-You can also spawn your client as a subprocess:
-
-```
 braid-fuzz ./examples/braid-text-simpleton-launcher.sh
-braid-fuzz ./examples/braid-text-simpleton-launcher.sh simpleton
-braid-fuzz "emacs --batch --load ./clients/emacs-agent.el"
+```
+
+Or start the server and connect your own client via WebSocket (`ws://127.0.0.1:4444`) or TCP (`127.0.0.1:4445`):
+
+```
+braid-fuzz
 ```
 
 ## Architecture
@@ -43,7 +49,7 @@ braid-fuzz "emacs --batch --load ./clients/emacs-agent.el"
 │         ▼                 ▼                  │           │
 │  ┌─────────────────────────────┐             │           │
 │  │      Client Bridge          │◄────────────┘           │
-│  │  HTTP (GET/PUT) or stdio    │                         │
+│  │  WebSocket, TCP, or stdio   │                         │
 │  └──────────┬──────────────────┘                         │
 │             │                                            │
 │             ▼                                            │
@@ -55,7 +61,7 @@ braid-fuzz "emacs --batch --load ./clients/emacs-agent.el"
 
 - **Test server** (`server.js`) — wraps `braid-text` with a control API for making server-side edits, reading state, and configuring behavior (ACK delays, PUT drops, etc.)
 - **Socket proxy** (`proxy.js`) — TCP proxy between client and server. Supports modes: `passthrough`, `blackhole`, `rst`, `close`, `delay`, `corrupt`. Tests switch modes to simulate network faults.
-- **Client bridge** — communicates with the client under test. In server mode (`lib/http-bridge.js`), streams commands over a long-lived GET and receives responses via PUTs. In subprocess mode (`lib/client-bridge.js`), spawns a process and talks JSON-lines over stdin/stdout.
+- **Client bridge** — communicates with the client under test via WebSocket, TCP (`lib/stream-bridge.js`), or stdin/stdout (`lib/client-bridge.js`). All transports use the same JSON-lines protocol.
 - **Test suites** (`tests/`) — discrete, named tests with structured assertions.
 
 ## Test suites
@@ -326,7 +332,7 @@ In server mode, you can also pass a filter via WebSocket query string: `ws://127
 
 ## JSON output
 
-The final line of the GET response (with `"done": true`) contains the full results:
+The final message (with `"done": true`) contains the full results:
 
 ```json
 {
