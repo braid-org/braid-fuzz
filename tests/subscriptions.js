@@ -10,7 +10,7 @@
 //
 // (See specs.md sections 2, 3, 5, 6)
 
-var { assert_equal, assert_truthy, wait_for } = require("../lib/assertions")
+var { assert_equal, assert_truthy, wait_for, sleep } = require("../lib/assertions")
 
 module.exports = [
 
@@ -147,6 +147,37 @@ module.exports = [
 
     {
         id: "subscriptions-5",
+        name: "Unsubscribe",
+        description: "Client opens a subscription, then closes it with unsubscribe; no reconnect after",
+        async run({ server, proxy, client, doc, base_url }) {
+            var connections = 0
+            server._on_subscribe = (req, res, url) => {
+                if (url === doc) connections++
+            }
+
+            await client.send("braid_fetch", {
+                url: base_url + doc,
+                subscribe: true,
+                headers: { "Merge-Type": "simpleton" }
+            })
+
+            await wait_for(() => connections >= 1,
+                { timeout_ms: 5000, msg: "Client should connect" })
+
+            await client.send("unsubscribe")
+
+            var connections_after = connections
+            await sleep(3000)
+
+            assert_truthy(connections === connections_after,
+                "Client should not reconnect after unsubscribe")
+
+            server._on_subscribe = null
+        }
+    },
+
+    {
+        id: "subscriptions-6",
         name: "Subscribe with Parents header",
         description: "Client subscribes with a Parents header; server sends only updates since that version (patches, not a full snapshot)",
         async run({ server, proxy, client, doc, base_url }) {
@@ -197,7 +228,7 @@ module.exports = [
     },
 
     {
-        id: "subscriptions-6",
+        id: "subscriptions-7",
         name: "Receive multiple updates in one stream",
         description: "Server makes several edits while subscribed; client receives all of them as separate updates in order",
         async run({ server, proxy, client, doc, base_url }) {

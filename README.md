@@ -21,18 +21,125 @@ Run your client through this gauntlet, and get back pass/fail results that an AI
 
 See the example controller and launch script for braid-text simpleton: [braid-text-simpleton-controller.js](examples/braid-text-simpleton-controller.js), [braid-text-simpleton-launcher.sh](examples/braid-text-simpleton-launcher.sh).
 
-## Quick start
+Detailed instructions follow:
+
+### 1. Connect your client with a braid-fuzz controller
+
+First, make a `controller` script for your client that lets braid-fuzz control it.  The script will:
+1. Connect to braid-fuzz via one of:
+  - **stdin/stdout**: Read commands from stdin, write responses to stdout (simplest — braid-fuzz spawns your script directly)
+  - **TCP**: Connect to `localhost:4445`. Each command is one line of text, separated by `\n`.
+  - **WebSocket**: Connect to `ws://localhost:4444`. Each command is one message.
+2. Read each incoming JSON command.
+3. Run the command to control your client below:
+  - Basic commands  *(start here!)*
+    - **Hello**: We begin! Record the name given you.
+    - **Quit**: we're done testing.  close up.
+  - HTTP commands *(add these next)*
+    - **Open HTTP** request
+    - **Close HTTP** request
+  - Text Sync commands *(then try these)*
+    - **Sync text**: Start syncing client text with a url
+    - **End sync**: End syncing
+    - **Edit**: Simulate a user text edit
+    - **Send text**: Send a copy of the client's text buffer back to braid-fuzz
+    - **Ack**: Notify braid-fuzz when all client edits to get acknowledged by server
+
+Second, write a headless `launch-client.sh` script that:
+ 1. Launches your client from the command-line (headless if possible)
+ 2. Runs your client's `controller`
+
+If using stdin/stdout, the launch script just needs to run the controller — braid-fuzz will pipe commands in and read responses out. If using TCP or WebSocket, the controller connects to the braid-fuzz server on its own.
+
+Now braid-fuzz can automatically run tests against your client with
+`braid-fuzz <launch-client.sh> <feature>`
+
+### 2. Build and test a feature
+
+To start, implement the *basic commands*, and test your basic setup with:
 
 ```
-npm install
-braid-fuzz ./examples/braid-text-simpleton-launcher.sh
+braid-fuzz <launch-client.sh> basics
 ```
 
-Or start the server and connect your own client via WebSocket (`ws://127.0.0.1:4444`) or TCP (`127.0.0.1:4445`):
+Once that works, you can start building and testing the exciting features!
 
+For each feature:
+  1. Implement the feature in your client
+  2. Implement the feature's controller commands in your `controller`
+  3. Test the feature with `braid-fuzz <launch-client.sh> <feature>`
+
+Once the Basic tests work, try moving on to HTTP.
+
+#### Basic Tests and Commands
+
+Run these tests with:
 ```
-braid-fuzz
+braid-fuzz <launch-client.sh> basics
 ```
+
+Commands to implement:
+
+| Command | JSON `cmd` | What to do |
+|---------|-----------|------------|
+| **Hello** | `hello` | Respond with `ok`. |
+| **Quit** | `quit` | Clean up and exit. |
+
+#### HTTP Tests and Commands
+
+Run these tests with:
+```
+braid-fuzz <launch-client.sh> http
+```
+
+These test your client's `braid_fetch` — can it open subscriptions, close them, and send PUTs?
+
+Commands to implement:
+
+| Command | JSON `cmd` | What to do |
+|---------|-----------|------------|
+| **Open subscription** | `braid_fetch` | Call `braid_fetch(url, {subscribe: true, ...})`. Push each update back as a `fetch-update` event. |
+| **Close subscription** | `unsubscribe` | Abort the most recent `braid_fetch` subscription. |
+| **Send PUT** | `braid_fetch` | Call `braid_fetch(url, {method: "PUT", version, parents, patches, ...})`. Push result as `fetch-ack`. |
+
+#### Subscriptions Tests
+
+Run these tests with:
+```
+braid-fuzz <launch-client.sh> subscriptions
+```
+
+These test subscription parsing in detail — snapshots, incremental patches, multi-patch updates, Patches: 0, Parents header. Uses the same `braid_fetch` and `unsubscribe` commands as HTTP.
+
+#### Reliable Updates Tests
+
+Run these tests with:
+```
+braid-fuzz <launch-client.sh> reliable-updates
+```
+
+These test reconnection, retry, heartbeat detection, and PUT retry. Uses the same `braid_fetch` and `unsubscribe` commands. Your `braid_fetch` needs to handle retry and heartbeat liveness.
+
+#### Text Sync (Simpleton) Tests and Commands
+
+Run these tests with:
+```
+braid-fuzz <launch-client.sh> simpleton
+```
+
+These test the simpleton merge protocol — local edits, remote edits, concurrent convergence.
+
+Commands to implement:
+
+| Command | JSON `cmd` | What to do |
+|---------|-----------|------------|
+| **Sync text** | `simpleton` | Start a `simpleton_client` subscription to the given URL. |
+| **End sync** | `kill-sub` | Abort the simpleton subscription. |
+| **Edit** | `replace` | Edit the local buffer at `pos`, removing `len` chars, inserting `text`. Triggers a PUT via `simpleton.changed()`. |
+| **Send text** | `state` | Respond with `{"state": "current buffer text"}`. |
+| **Ack** | `wait-ack` | Block until all pending PUTs are acknowledged. |
+
+
 
 ## Architecture
 
@@ -63,57 +170,6 @@ braid-fuzz
 - **Socket proxy** (`proxy.js`) — TCP proxy between client and server. Supports modes: `passthrough`, `blackhole`, `rst`, `close`, `delay`, `corrupt`. Tests switch modes to simulate network faults.
 - **Client bridge** — communicates with the client under test via WebSocket, TCP (`lib/stream-bridge.js`), or stdin/stdout (`lib/client-bridge.js`). All transports use the same JSON-lines protocol.
 - **Test suites** (`tests/`) — discrete, named tests with structured assertions.
-
-## Test suites
-
-Tests are organized into three layers, from lowest to highest:
-
-### Subscriptions
-
-Tests for braid subscription parsing — the core protocol layer. These use the `braid_fetch` command with `subscribe: true` to test the client's `braid_fetch` directly, independent of any merge protocol.
-
-| Test | Description |
-|------|-------------|
-| subscriptions-1 | Receive snapshot body — full body via Content-Length |
-| subscriptions-2 | Receive incremental patch — Content-Range patch |
-| subscriptions-3 | Multi-patch update — Patches: N with multiple patches |
-| subscriptions-4 | Receive Patches: 0 update — version advances, no content |
-| subscriptions-5 | Subscribe with Parents header — server resumes from version |
-| subscriptions-6 | Receive multiple updates in one stream — ordering verified |
-
-### Reliable Updates
-
-Tests for reliable update delivery: subscription reconnection, heartbeat liveness, and PUT retry. All tests use the `braid_fetch` command — with `subscribe: true` for subscriptions, or `method: "PUT"` for PUTs.
-
-| Test | Description |
-|------|-------------|
-| reliable-updates-1 | Reconnect after connection close |
-| reliable-updates-2 | Reconnect after TCP RST mid-stream |
-| reliable-updates-3 | 503 then recovery |
-| reliable-updates-4 | Rapid disconnect cycling |
-| reliable-updates-5 | Client can unsubscribe |
-| reliable-updates-6 | 500 then recovery |
-| reliable-updates-7 | Blackhole detected via heartbeat timeout |
-| reliable-updates-8 | Close between patches |
-| reliable-updates-9 | Multiple error statuses then recovery |
-| reliable-updates-10 | Reconnect after connection refused |
-| reliable-updates-11 | PUT delivered successfully |
-| reliable-updates-12 | PUT retried after connection dies |
-| reliable-updates-13 | PUT retried after 503 |
-
-### Simpleton
-
-Tests for the simpleton merge protocol: local edits, remote edits, concurrent convergence. Uses `simpleton` to start a `simpleton_client` and `replace`/`state` to drive edits.
-
-| Test | Description |
-|------|-------------|
-| simpleton-1 | Initial subscribe — buffer matches server state |
-| simpleton-2 | Local edit round-trip — insert → PUT → ACK → states match |
-| simpleton-3 | Receive remote edit — server edit arrives in client |
-| simpleton-4 | Concurrent edits converge — both sides insert at pos 0 |
-| simpleton-5 | Interleaved edits — alternating client/server, all present |
-| simpleton-6 | Edit during reconnect — offline edit merges on reconnect |
-| simpleton-7 | Multi-client fuzz — 3 clients + server, random edits, all converge |
 
 ## Protocol
 
@@ -300,59 +356,4 @@ Every response is a single JSON line containing the `id` from the command.
 {"event": "fetch-error", "name": "fetch-1", "data": {"message": "..."}}
 ```
 
-### Writing a new client
-
-Connect to the fuzz server via WebSocket or TCP and exchange JSON lines. Any language can do this. Key points:
-
-- All positions are **character offsets**, not byte offsets (relevant for multi-byte UTF-8).
-- Handle commands sequentially (respond to each before reading the next) except for `wait-ack`, which blocks until ACKs arrive.
-- For `braid_fetch` subscriptions, push updates proactively as unsolicited events — don't wait to be asked.
-- Unknown commands should return an error response, not crash.
-
 See [examples/braid-text-simpleton-controller.js](examples/braid-text-simpleton-controller.js) for a complete reference implementation.
-
-## CLI
-
-```
-braid-fuzz                                Start server, wait for client
-braid-fuzz <filter>                      Start server, only run matching tests
-braid-fuzz <cmd>                          Spawn <cmd> as subprocess, run tests
-braid-fuzz <cmd> <filter>                Subprocess + filter
-
-Options:
-  --port <n>            WebSocket port (default: 4444, server mode only)
-  --tcp-port <n>        TCP port (default: 4445, server mode only)
-  --timeout <ms>        Per-test timeout (default: 30000)
-  --json                Output results as JSON
-  --server-port <n>     Fixed braid-text server port (default: auto)
-  --proxy-port <n>      Fixed proxy port (default: auto)
-```
-
-In server mode, you can also pass a filter via WebSocket query string: `ws://127.0.0.1:4444?filter=simpleton`
-
-## JSON output
-
-The final message (with `"done": true`) contains the full results:
-
-```json
-{
-  "done": true,
-  "results": [
-    {"id": "subscriptions-1", "name": "Receive snapshot body", "status": "pass", "duration_ms": 521},
-    {"id": "simpleton-4", "name": "Concurrent edits converge", "status": "fail", "error": "...", "duration_ms": 10032}
-  ],
-  "summary": {"passed": 25, "failed": 1, "skipped": 0, "total": 26}
-}
-```
-
-## Subprocess mode
-
-In subprocess mode, the client reads JSON-line commands from stdin and writes JSON-line responses to stdout. The commands, responses, and unsolicited events are identical to server mode.
-
-```
-braid-fuzz ./examples/braid-text-simpleton-launcher.sh
-braid-fuzz ./examples/braid-text-simpleton-launcher.sh simpleton
-braid-fuzz ./examples/braid-text-simpleton-launcher.sh --json
-```
-
-In this mode, diagnostic output must go to **stderr** (stdout is the protocol channel).
