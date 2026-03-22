@@ -236,6 +236,17 @@ class TestServer {
         return this.edit_doc(doc, [{ unit: "text", range: `[${start}:${end}]`, content: text }])
     }
 
+    // Write a raw update directly to active subscriptions for a doc.
+    // Useful for sending updates that braid-text doesn't support natively
+    // (e.g. Patches: 0).
+    send_raw_update(doc, update_str) {
+        for (var sub of this._subscriptions) {
+            if (sub.url === doc) {
+                try { sub.res.write(update_str) } catch (e) {}
+            }
+        }
+    }
+
     subscription_count(doc) {
         if (doc) return this._subscriptions.filter(s => s.url === doc).length
         return this._subscriptions.length

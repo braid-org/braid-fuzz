@@ -70,23 +70,30 @@ Tests for braid subscription parsing — the core protocol layer. These use the 
 | subscriptions-1 | Receive snapshot body — full body via Content-Length |
 | subscriptions-2 | Receive incremental patch — Content-Range patch |
 | subscriptions-3 | Multi-patch update — Patches: N with multiple patches |
+| subscriptions-4 | Receive Patches: 0 update — version advances, no content |
+| subscriptions-5 | Subscribe with Parents header — server resumes from version |
+| subscriptions-6 | Receive multiple updates in one stream — ordering verified |
 
 ### Reconnects
 
-Tests for reliable reconnection: retry logic, Parents on reconnect, error recovery. Also uses `subscribe` to test `braid_fetch` reconnection behavior directly.
+Tests for reliable reconnection: retry logic, error recovery, fault injection. Uses `subscribe` to test `braid_fetch` reconnection behavior directly.
 
 | Test | Description |
 |------|-------------|
-| reconnects-1 | Reconnect after server closes connection |
-| reconnects-2 | Reconnect after TCP RST |
-| reconnects-3 | Reconnect sends Parents header with last version |
-| reconnects-4 | 503 then recovery — client retries and succeeds |
-| reconnects-5 | Rapid disconnect cycling — 3 disconnects, reconnects each time |
-| reconnects-6 | Client can unsubscribe — no reconnect after unsubscribe |
+| reconnects-1 | Reconnect after connection close |
+| reconnects-2 | Reconnect after TCP RST mid-stream |
+| reconnects-3 | 503 then recovery — client retries and succeeds |
+| reconnects-4 | Rapid disconnect cycling — 3 disconnects, reconnects each time |
+| reconnects-5 | Client can unsubscribe — no reconnect after unsubscribe |
+| reconnects-6 | 500 then recovery — warn and retry |
+| reconnects-7 | Blackhole then disconnect triggers reconnect |
+| reconnects-8 | Close between patches — patch applied, then reconnect |
+| reconnects-9 | Multiple error statuses then recovery |
+| reconnects-10 | Reconnect after connection refused — proxy down then back |
 
 ### Simpleton
 
-Tests for the simpleton merge protocol: local edits, remote edits, concurrent convergence. Uses `connect` to start a `simpleton_client` and `insert`/`delete`/`state` to drive edits.
+Tests for the simpleton merge protocol: local edits, remote edits, concurrent convergence. Uses `simpleton` to start a `simpleton_client` and `replace`/`state` to drive edits.
 
 | Test | Description |
 |------|-------------|
@@ -316,7 +323,7 @@ The final line of the GET response (with `"done": true`) contains the full resul
     {"id": "subscriptions-1", "name": "Receive snapshot body", "status": "pass", "duration_ms": 521},
     {"id": "simpleton-4", "name": "Concurrent edits converge", "status": "fail", "error": "...", "duration_ms": 10032}
   ],
-  "summary": {"passed": 14, "failed": 1, "skipped": 0, "total": 15}
+  "summary": {"passed": 21, "failed": 1, "skipped": 0, "total": 22}
 }
 ```
 

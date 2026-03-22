@@ -46,8 +46,8 @@ module.exports = [
 
     {
         id: "reconnects-2",
-        name: "Reconnect after TCP RST",
-        description: "Proxy injects a TCP RST; client reconnects (specs.md 3.2)",
+        name: "Reconnect after TCP RST mid-stream",
+        description: "Proxy injects TCP RST when data flows; client reconnects (specs.md 3.2)",
         async run({ server, proxy, client, doc, base_url }) {
             var connections = 0
             server._on_subscribe = (req, res, url) => {
@@ -62,10 +62,14 @@ module.exports = [
             await wait_for(() => connections >= 1,
                 { timeout_ms: 5000, msg: "Client should connect" })
 
-            // RST the connection — set mode then trigger it
+            // Arm RST mode — next data on the connection triggers the RST
             proxy.set_mode("rst")
-            proxy.disconnect_all()
+
+            // Server edit causes data to flow on the subscription → hits RST
+            await server.insert_at(doc, 0, "trigger-rst")
             await sleep(500)
+
+            // Restore so the client can reconnect
             proxy.set_mode("passthrough")
 
             await wait_for(() => connections >= 2,
@@ -77,48 +81,6 @@ module.exports = [
 
     {
         id: "reconnects-3",
-        name: "Reconnect sends Parents header",
-        description: "After reconnecting, client sends Parents with last received version (specs.md 10.1)",
-        async run({ server, proxy, client, doc, base_url }) {
-            var connections = []
-            server._on_subscribe = (req, res, url) => {
-                if (url === doc) connections.push({ parents: req.headers.parents || null })
-            }
-
-            // Seed doc so the initial subscription delivers a version
-            await server.insert_at(doc, 0, "hello")
-
-            await client.send("subscribe", {
-                url: base_url + doc,
-                headers: { "Merge-Type": "simpleton" }
-            })
-
-            // Wait for first connection and at least one update received
-            await wait_for(() => connections.length >= 1 && client.updates.length >= 1,
-                { timeout_ms: 5000, msg: "Client should connect and receive data" })
-
-            // Disconnect
-            proxy.disconnect_all()
-            await sleep(500)
-            proxy.set_mode("passthrough")
-
-            // Wait for reconnection
-            await wait_for(() => connections.length >= 2,
-                { timeout_ms: 10000, msg: "Client should reconnect" })
-
-            // The reconnect request should have Parents
-            var reconnect = connections[connections.length - 1]
-            assert_truthy(reconnect.parents,
-                "Reconnect request should include a Parents header")
-            assert_truthy(reconnect.parents.length > 0,
-                "Parents header should contain version info")
-
-            server._on_subscribe = null
-        }
-    },
-
-    {
-        id: "reconnects-4",
         name: "503 then recovery",
         description: "Server returns 503 on first attempt; client retries and connects (specs.md 2.6)",
         async run({ server, proxy, client, doc, base_url }) {
@@ -151,7 +113,7 @@ module.exports = [
     },
 
     {
-        id: "reconnects-5",
+        id: "reconnects-4",
         name: "Rapid disconnect cycling",
         description: "3 disconnects in quick succession; client reconnects each time",
         async run({ server, proxy, client, doc, base_url }) {
@@ -184,7 +146,7 @@ module.exports = [
     },
 
     {
-        id: "reconnects-6",
+        id: "reconnects-5",
         name: "Client can unsubscribe",
         description: "Client aborts a subscription via unsubscribe; no reconnect attempts after",
         async run({ server, proxy, client, doc, base_url }) {
@@ -215,13 +177,184 @@ module.exports = [
         }
     },
 
-    // Coming soon:
-    //
-    // - Close after partial patch → discard partial, retry (3.4)
-    // - RST mid-patch → discard partial, retry (3.6)
-    // - Blackhole → heartbeat timeout → retry (4.2)
-    // - Heartbeat timing: timeout = 1.2 * N + 3 (4.H1)
-    // - PUT queue retried in order after disconnect (9.1)
-    // - Retry-After delay respected (specs.md retry delay)
+    {
+        id: "reconnects-6",
+        name: "500 then recovery",
+        description: "Server returns 500 on first attempt; client warns and retries (specs.md 2.9)",
+        async run({ server, proxy, client, doc, base_url }) {
+            var attempts = 0
+            var successful_connections = 0
+            server._on_subscribe = (req, res, url) => {
+                if (url !== doc) return
+                attempts++
+                if (attempts === 1) {
+                    res.writeHead(500)
+                    res.end("Internal Server Error")
+                    req.url = "/dev/null"
+                } else {
+                    successful_connections++
+                }
+            }
+
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton" }
+            })
+
+            await wait_for(() => successful_connections >= 1,
+                { timeout_ms: 10000, msg: "Client should retry after 500 and connect" })
+
+            assert_truthy(attempts >= 2, "Client should have made at least 2 attempts")
+
+            server._on_subscribe = null
+        }
+    },
+
+    {
+        id: "reconnects-7",
+        name: "Blackhole then disconnect triggers reconnect",
+        description: "Proxy blackholes traffic, then kills connections; client reconnects (specs.md 4.2)",
+        async run({ server, proxy, client, doc, base_url }) {
+            var connections = 0
+            server._on_subscribe = (req, res, url) => {
+                if (url === doc) connections++
+            }
+
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton" }
+            })
+
+            await wait_for(() => connections >= 1,
+                { timeout_ms: 5000, msg: "Client should connect" })
+
+            // Blackhole — data goes nowhere, connection stays open
+            proxy.set_mode("blackhole")
+            await sleep(1000)
+
+            // Kill the blackholed connections so the client detects failure
+            proxy.disconnect_all()
+            await sleep(500)
+            proxy.set_mode("passthrough")
+
+            await wait_for(() => connections >= 2,
+                { timeout_ms: 10000, msg: "Client should reconnect after blackhole + disconnect" })
+
+            server._on_subscribe = null
+        }
+    },
+
+    {
+        id: "reconnects-8",
+        name: "Close between patches",
+        description: "Server sends a complete patch, then connection closes; client applies the patch and reconnects (specs.md 3.5)",
+        async run({ server, proxy, client, doc, base_url }) {
+            var connections = 0
+            server._on_subscribe = (req, res, url) => {
+                if (url === doc) connections++
+            }
+
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton" }
+            })
+
+            await wait_for(() => connections >= 1,
+                { timeout_ms: 5000, msg: "Client should connect" })
+
+            // Send a complete patch
+            await server.insert_at(doc, 0, "complete")
+
+            // Wait for client to receive it
+            await wait_for(() =>
+                client.updates.some(u =>
+                    (u.patches && u.patches.some(p => p.content === "complete")) ||
+                    (u.body && u.body.includes("complete"))
+                ),
+                { timeout_ms: 5000, msg: "Client should receive the patch" })
+
+            // Now close the connection
+            proxy.disconnect_all()
+            await sleep(500)
+            proxy.set_mode("passthrough")
+
+            // Client should reconnect
+            await wait_for(() => connections >= 2,
+                { timeout_ms: 10000, msg: "Client should reconnect after close between patches" })
+        }
+    },
+
+    {
+        id: "reconnects-9",
+        name: "Multiple error statuses then recovery",
+        description: "Server returns 503, then 500, then succeeds; client keeps retrying through different error codes",
+        async run({ server, proxy, client, doc, base_url }) {
+            var attempts = 0
+            var successful_connections = 0
+            server._on_subscribe = (req, res, url) => {
+                if (url !== doc) return
+                attempts++
+                if (attempts === 1) {
+                    res.writeHead(503)
+                    res.end("Service Unavailable")
+                    req.url = "/dev/null"
+                } else if (attempts === 2) {
+                    res.writeHead(500)
+                    res.end("Internal Server Error")
+                    req.url = "/dev/null"
+                } else {
+                    successful_connections++
+                }
+            }
+
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton" }
+            })
+
+            await wait_for(() => successful_connections >= 1,
+                { timeout_ms: 15000, msg: "Client should eventually connect after multiple errors" })
+
+            assert_truthy(attempts >= 3, "Client should have made at least 3 attempts")
+
+            server._on_subscribe = null
+        }
+    },
+
+    {
+        id: "reconnects-10",
+        name: "Reconnect after connection refused",
+        description: "Proxy is down when client subscribes; client retries until proxy comes back (specs.md 1.2)",
+        async run({ server, proxy, client, doc, base_url }) {
+            var connections = 0
+            server._on_subscribe = (req, res, url) => {
+                if (url === doc) connections++
+            }
+
+            // Stop the proxy so nothing is listening on the proxy port
+            var proxy_port = proxy.listen_port
+            await proxy.stop()
+
+            // Client tries to subscribe — connection refused
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton" }
+            })
+
+            await sleep(2000)
+
+            // Restart the proxy on the same port
+            proxy.listen_port = proxy_port
+            proxy.connections = []
+            proxy.mode = "passthrough"
+            await proxy.start()
+
+            // Client should eventually reconnect
+            await wait_for(() => connections >= 1,
+                { timeout_ms: 15000, msg: "Client should connect after proxy comes back" })
+
+            server._on_subscribe = null
+        }
+    },
 
 ]

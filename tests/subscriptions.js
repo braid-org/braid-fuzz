@@ -102,4 +102,130 @@ module.exports = [
         }
     },
 
+    {
+        id: "subscriptions-4",
+        name: "Receive Patches: 0 update",
+        description: "Server sends an update with Patches: 0 (no content changes); client receives it with a version but no patches",
+        async run({ server, proxy, client, doc, base_url }) {
+            await server.insert_at(doc, 0, "hello")
+
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton" }
+            })
+
+            await wait_for(() => client.updates.length >= 1,
+                { timeout_ms: 5000, msg: "Client should receive initial snapshot" })
+
+            // Get the current version from the last update the client received
+            var last_version = client.updates[client.updates.length - 1].version
+
+            // Send a raw Patches: 0 update directly on the subscription stream
+            var version = '"patches0-test-' + Date.now() + '"'
+            var parents = last_version ? last_version.map(v => '"' + v + '"').join(", ") : ""
+            server.send_raw_update(doc,
+                `Version: ${version}\r\n` +
+                `Parents: ${parents}\r\n` +
+                `Patches: 0\r\n` +
+                `\r\n`
+            )
+
+            await wait_for(() => client.updates.length >= 2,
+                { timeout_ms: 5000, msg: "Client should receive Patches: 0 update" })
+
+            var update = client.updates[client.updates.length - 1]
+            assert_truthy(update.version && update.version.length > 0,
+                "Patches: 0 update should have a version")
+            assert_equal(update.patches.length, 0,
+                "Patches: 0 update should have an empty patches array")
+        }
+    },
+
+    {
+        id: "subscriptions-5",
+        name: "Subscribe with Parents header",
+        description: "Client subscribes with a Parents header; server sends only updates since that version (patches, not a full snapshot)",
+        async run({ server, proxy, client, doc, base_url }) {
+            // Subscribe first, then make two edits so we see distinct versions
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton" },
+                name: "probe"
+            })
+
+            await wait_for(() => client.updates.length >= 1,
+                { timeout_ms: 5000, msg: "Probe should receive initial snapshot" })
+
+            await server.insert_at(doc, 0, "hello")
+            await wait_for(() => client.updates.length >= 2,
+                { timeout_ms: 5000, msg: "Probe should receive first edit" })
+
+            // Grab the version after "hello" — we'll resume from here
+            var mid_version = client.updates[1].version
+            assert_truthy(mid_version && mid_version.length > 0,
+                "Edit update should have a version")
+
+            await server.insert_at(doc, 5, " world")
+            await wait_for(() => client.updates.length >= 3,
+                { timeout_ms: 5000, msg: "Probe should receive second edit" })
+
+            // Clean up probe
+            await client.send("unsubscribe", { name: "probe" })
+            client.updates.length = 0
+
+            // Now subscribe with Parents set to mid_version
+            var parents_value = mid_version.map(v => '"' + v + '"').join(", ")
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton", "Parents": parents_value }
+            })
+
+            await wait_for(() => client.updates.length >= 1,
+                { timeout_ms: 5000, msg: "Client should receive update since Parents" })
+
+            // Should get a patch (the " world" edit), not a full body snapshot
+            var update = client.updates[0]
+            assert_truthy(update.patches && update.patches.length > 0,
+                "First update after Parents should be a patch, not a full body")
+        }
+    },
+
+    {
+        id: "subscriptions-6",
+        name: "Receive multiple updates in one stream",
+        description: "Server makes several edits while subscribed; client receives all of them as separate updates in order",
+        async run({ server, proxy, client, doc, base_url }) {
+            await client.send("subscribe", {
+                url: base_url + doc,
+                headers: { "Merge-Type": "simpleton" }
+            })
+
+            await wait_for(() => client.updates.length >= 1,
+                { timeout_ms: 5000, msg: "Client should receive initial snapshot" })
+
+            // Fire 5 edits
+            for (var i = 0; i < 5; i++) {
+                await server.insert_at(doc, i, String(i))
+            }
+
+            await wait_for(() => client.updates.length >= 6,
+                { timeout_ms: 10000, msg: "Client should receive all 5 patches plus initial" })
+
+            // Verify ordering: each update's parents should match the previous version
+            for (var i = 2; i < client.updates.length; i++) {
+                assert_equal(
+                    JSON.stringify(client.updates[i].parents),
+                    JSON.stringify(client.updates[i - 1].version),
+                    `Update ${i} parents should match update ${i - 1} version`
+                )
+            }
+
+            // Verify all patches arrived with content
+            for (var i = 1; i < client.updates.length; i++) {
+                assert_truthy(client.updates[i].patches && client.updates[i].patches.length > 0,
+                    `Update ${i} should have patches`)
+            }
+        }
+    },
+
 ]
