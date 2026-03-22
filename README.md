@@ -23,8 +23,8 @@ Tests run automatically when your client connects. See [Protocol](#protocol) bel
 You can also spawn your client as a subprocess:
 
 ```
-braid-fuzz "node ./clients/js-simpleton.js"
-braid-fuzz "node ./clients/js-simpleton.js" simpleton
+braid-fuzz ./examples/braid-text-simpleton-launcher.sh
+braid-fuzz ./examples/braid-text-simpleton-launcher.sh simpleton
 braid-fuzz "emacs --batch --load ./clients/emacs-agent.el"
 ```
 
@@ -303,7 +303,7 @@ Connect to the fuzz server via WebSocket or TCP and exchange JSON lines. Any lan
 - For `braid_fetch` subscriptions, push updates proactively as unsolicited events — don't wait to be asked.
 - Unknown commands should return an error response, not crash.
 
-See [clients/js-simpleton.js](clients/js-simpleton.js) for a complete reference implementation.
+See [examples/braid-text-simpleton-controller.js](examples/braid-text-simpleton-controller.js) for a complete reference implementation.
 
 ## CLI
 
@@ -344,9 +344,9 @@ The final line of the GET response (with `"done": true`) contains the full resul
 In subprocess mode, the client reads JSON-line commands from stdin and writes JSON-line responses to stdout. The commands, responses, and unsolicited events are identical to server mode.
 
 ```
-braid-fuzz "node ./clients/js-simpleton.js"
-braid-fuzz "node ./clients/js-simpleton.js" simpleton
-braid-fuzz "node ./clients/js-simpleton.js" --json
+braid-fuzz ./examples/braid-text-simpleton-launcher.sh
+braid-fuzz ./examples/braid-text-simpleton-launcher.sh simpleton
+braid-fuzz ./examples/braid-text-simpleton-launcher.sh --json
 ```
 
 In this mode, diagnostic output must go to **stderr** (stdout is the protocol channel).

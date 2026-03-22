@@ -18,10 +18,10 @@
 //   --proxy-port <n>     Fixed proxy port (default: auto)
 //
 // Examples:
-//   node test-runner.js --cmd "node ./clients/js-simpleton.js"
+//   node test-runner.js --cmd "node ./examples/braid-text-simpleton-controller.js"
 //   node test-runner.js --cmd "emacs --batch --load ./clients/emacs-agent.el"
 //   node test-runner.js --cmd "nvim --headless -u ./clients/nvim-agent.lua"
-//   node test-runner.js --cmd "node ./clients/js-simpleton.js" A1
+//   node test-runner.js --cmd "node ./examples/braid-text-simpleton-controller.js" A1
 
 var { TestServer } = require("./server")
 var { SocketProxy } = require("./proxy")
@@ -55,7 +55,7 @@ for (var i = 0; i < args.length; i++) {
 }
 
 if (!opts.cmd) {
-    console.error("Error: --cmd is required. Example: --cmd \"node ./clients/js-simpleton.js\"")
+    console.error("Error: --cmd is required. Example: --cmd \"node ./examples/braid-text-simpleton-controller.js\"")
     process.exit(1)
 }
 

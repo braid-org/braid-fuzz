@@ -31,8 +31,8 @@ Options:
 Examples:
   braid-fuzz
   braid-fuzz simpleton
-  braid-fuzz "node ./clients/js-simpleton.js"
-  braid-fuzz "node ./clients/js-simpleton.js" reliable-updates
+  braid-fuzz ./examples/braid-text-simpleton-launcher.sh
+  braid-fuzz ./examples/braid-text-simpleton-launcher.sh reliable-updates
   braid-fuzz my-client-script subscriptions-3
 `)
     process.exit(0)

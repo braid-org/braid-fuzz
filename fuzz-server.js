@@ -274,7 +274,7 @@ async function run_test(test, { server, proxy, base_url, session, send_fn }) {
         for (var ei = 0; ei < num_extra; ei++) {
             var extra = new ClientBridge({
                 command: process.execPath,
-                args: [require("path").join(__dirname, "clients", "js-simpleton.js")],
+                args: [require("path").join(__dirname, "examples", "braid-text-simpleton-controller.js")],
                 server_base_url: base_url,
             })
             await extra.start()

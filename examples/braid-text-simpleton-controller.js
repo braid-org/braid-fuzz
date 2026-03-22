@@ -7,8 +7,8 @@
 //   2. Uses the reference simpleton-sync client to talk to a braid-text server
 //   3. Writes JSON responses to stdout (one per line)
 //
-// Usage with the test runner:
-//   node test-runner.js --cmd "node ./clients/js-simpleton.js"
+// Usage:
+//   braid-fuzz "node ./examples/braid-text-simpleton-controller.js"
 
 var readline = require("readline")
 var { fetch: braid_fetch } = require("braid-http")
