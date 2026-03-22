@@ -27,14 +27,16 @@ Detailed instructions follow:
 
 First, make a `controller` script for your client that lets braid-fuzz control it.  The script will:
 1. Connect to braid-fuzz via one of:
-  - **stdin/stdout**: Read commands from stdin, write responses to stdout (simplest — braid-fuzz spawns your script directly)
-  - **TCP**: Connect to `localhost:4445`. Each command is one line of text, separated by `\n`.
-  - **WebSocket**: Connect to `ws://localhost:4444`. Each command is one message.
-2. Read each incoming JSON command.
+  - **stdin/stdout**: Simplest — braid-fuzz spawns your script directly.
+  - **TCP**: Connect to `localhost:4445`.
+  - **WebSocket**: Connect to `ws://localhost:4444`.
+2. Read each incoming JSON command:
+  - stdin/stdout and TCP: Each command is one line of text, separated by `\n`.
+  - WebSocket: Each command is one message.
 3. Run the command to control your client below:
   - Basic commands  *(start here!)*
-    - **Hello**: We begin! Record the name given you.
-    - **Quit**: we're done testing.  close up.
+    - **Hello**: We begin! Respond with ok.
+    - **Results**: Testing is done. Receive results and clean up.
   - HTTP commands *(add these next)*
     - **Open HTTP** request
     - **Close HTTP** request
@@ -83,7 +85,7 @@ Commands to implement:
 | Command | JSON `cmd` | What to do |
 |---------|-----------|------------|
 | **Hello** | `hello` | Respond with `ok`. |
-| **Quit** | `quit` | Clean up and exit. |
+| **Results** | `results` | Receive test results. Respond with `ok`, then clean up and exit. |
 
 #### HTTP Tests and Commands
 
@@ -141,82 +143,63 @@ Commands to implement:
 
 
 
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                    Test Runner (Node.js)                 │
-│                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │ Test Suites  │  │ Socket Proxy │  │ Braid-Text     │  │
-│  │              │  │ (fault       │  │ Server         │  │
-│  │              │  │  injection)  │  │ (real CRDT)    │  │
-│  └──────┬───────┘  └──────┬───────┘  └───────┬────────┘  │
-│         │                 │                  │           │
-│         ▼                 ▼                  │           │
-│  ┌─────────────────────────────┐             │           │
-│  │      Client Bridge          │◄────────────┘           │
-│  │  WebSocket, TCP, or stdio   │                         │
-│  └──────────┬──────────────────┘                         │
-│             │                                            │
-│             ▼                                            │
-│  ┌─────────────────────────────┐                         │
-│  │  Your client (any language) │                         │
-│  └─────────────────────────────┘                         │
-└──────────────────────────────────────────────────────────┘
-```
-
-- **Test server** (`server.js`) — wraps `braid-text` with a control API for making server-side edits, reading state, and configuring behavior (ACK delays, PUT drops, etc.)
-- **Socket proxy** (`proxy.js`) — TCP proxy between client and server. Supports modes: `passthrough`, `blackhole`, `rst`, `close`, `delay`, `corrupt`. Tests switch modes to simulate network faults.
-- **Client bridge** — communicates with the client under test via WebSocket, TCP (`lib/stream-bridge.js`), or stdin/stdout (`lib/client-bridge.js`). All transports use the same JSON-lines protocol.
-- **Test suites** (`tests/`) — discrete, named tests with structured assertions.
-
 ## Protocol
 
-Your client connects via WebSocket or TCP and communicates using newline-delimited JSON.
+Communication uses JSON — one command or response per line (stdin/stdout and TCP) or per message (WebSocket).
 
-### Connecting
-
-Connect to the fuzz server via either transport:
-
-- **WebSocket:** `ws://127.0.0.1:4444` (or `ws://127.0.0.1:4444?filter=simpleton`)
-- **TCP:** `127.0.0.1:4445`
-
-Once connected, the server immediately starts streaming JSON-line commands. Each command has an `id` and `cmd` field. Send your response as a JSON line back on the same connection.
-
-When all tests finish, the server sends a final line with `"done": true` and the results summary, then closes the connection.
+Each command from braid-fuzz includes an `id` and `cmd` field. Your controller responds with the same `id` and either `"ok": true` or `"error": "..."`. When all tests finish, braid-fuzz sends a `results` command with the test results.
 
 ### Example flow
 
 ```
-Client                                  Fuzz Server
+Controller                              braid-fuzz
   |                                         |
-  |  (connect via WebSocket or TCP)         |
-  |  ────────────────────────────────────>  |
-  |                                         |
-  |  {"id":1,"cmd":"braid_fetch","url":..}  |
+  |  {"id":1,"cmd":"hello"}                 |
   |  <────────────────────────────────────  |
   |                                         |
   |  {"id":1, "ok":true}                    |
   |  ────────────────────────────────────>  |
   |                                         |
-  |  (subscription updates arrive from the  |
-  |   braid server — client forwards them   |
-  |   to the fuzz server as events)         |
+  |  {"id":2,"cmd":"braid_fetch","url":..}  |
+  |  <────────────────────────────────────  |
+  |                                         |
+  |  {"id":2, "ok":true}                    |
+  |  ────────────────────────────────────>  |
+  |                                         |
+  |  (updates arrive from braid server —    |
+  |   controller forwards them as events)   |
   |                                         |
   |  {"event":"fetch-update", ...}          |
   |  ────────────────────────────────────>  |
   |                                         |
   |  ... more commands and events ...       |
   |                                         |
-  |  {"done":true, "results":[...], ...}    |
+  |  {"cmd":"results", "results":[...]}     |
   |  <────────────────────────────────────  |
-  |  (connection closes)                    |
+  |                                         |
+  |  {"id":N, "ok":true}                    |
+  |  ────────────────────────────────────>  |
 ```
 
 ### Commands (server → client)
 
 Every command includes an `id` (integer, assigned by the server) and a `cmd` (string). The client must echo back the same `id` in its response.
+
+#### `hello` — Greeting
+
+```json
+{"id": 1, "cmd": "hello"}
+```
+
+Respond with `{"id": 1, "ok": true}`. This is the first command sent, used by the basics tests.
+
+#### `results` — Test results
+
+```json
+{"id": 2, "cmd": "results", "results": [...], "summary": {"passed": 5, "failed": 1, ...}}
+```
+
+Sent when all tests are done. The command includes the full test results. Respond with `ok`, then clean up and exit.
 
 #### `braid_fetch` — Call the client's braid_fetch
 
@@ -235,11 +218,10 @@ Mirrors the `braid_fetch` API directly. The client should call its `braid_fetch`
 | `parents` | array | Parent version strings (PUT only) |
 | `patches` | array | Array of `{unit, range, content}` (PUT only) |
 | `headers` | object | Extra headers (optional) |
-| `name` | string | Name for this fetch (optional, auto-generated if omitted) |
 
 **For subscriptions** (`subscribe: true`), push updates as they arrive:
 ```json
-{"event": "fetch-update", "name": "fetch-1", "data": {"version": [...], "parents": [...], "body": "...", "patches": [...]}}
+{"event": "fetch-update", "data": {"version": [...], "parents": [...], "body": "...", "patches": [...]}}
 ```
 
 The `data` object should include:
@@ -250,12 +232,12 @@ The `data` object should include:
 
 **For PUTs** (`method: "PUT"`), push the result:
 ```json
-{"event": "fetch-ack", "name": "fetch-2", "data": {"status": 200}}
+{"event": "fetch-ack", "data": {"status": 200}}
 ```
 
 **On errors** (either type):
 ```json
-{"event": "fetch-error", "name": "fetch-1", "data": {"message": "..."}}
+{"event": "fetch-error", "data": {"message": "..."}}
 ```
 
 Used by subscription, reliable-updates, and PUT tests.
@@ -263,10 +245,10 @@ Used by subscription, reliable-updates, and PUT tests.
 #### `unsubscribe` — Abort a braid_fetch subscription
 
 ```json
-{"id": 2, "cmd": "unsubscribe", "name": "fetch-1"}
+{"id": 2, "cmd": "unsubscribe"}
 ```
 
-Aborts the subscription started by a previous `braid_fetch` command. If `name` is omitted, aborts the most recent one.
+Aborts the current `braid_fetch` subscription.
 
 #### `simpleton` — Open a simpleton subscription
 
@@ -322,14 +304,6 @@ The client must not respond until every previously triggered PUT has received an
 
 Aborts the current simpleton subscription. Does **not** clear the local buffer.
 
-#### `quit` — Shut down the client process
-
-```json
-{"id": 10, "cmd": "quit"}
-```
-
-The client should respond, clean up resources, and exit.
-
 ### Responses (client → runner)
 
 Every response is a single JSON line containing the `id` from the command.
@@ -351,9 +325,39 @@ Every response is a single JSON line containing the `id` from the command.
 
 **Unsolicited events** (no `id` — pushed proactively by the client):
 ```json
-{"event": "fetch-update", "name": "fetch-1", "data": {...}}
-{"event": "fetch-ack", "name": "fetch-2", "data": {"status": 200}}
-{"event": "fetch-error", "name": "fetch-1", "data": {"message": "..."}}
+{"event": "fetch-update", "data": {...}}
+{"event": "fetch-ack", "data": {"status": 200}}
+{"event": "fetch-error", "data": {"message": "..."}}
 ```
 
 See [examples/braid-text-simpleton-controller.js](examples/braid-text-simpleton-controller.js) for a complete reference implementation.
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    Test Runner (Node.js)                 │
+│                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │ Test Suites  │  │ Socket Proxy │  │ Braid-Text     │  │
+│  │              │  │ (fault       │  │ Server         │  │
+│  │              │  │  injection)  │  │ (real CRDT)    │  │
+│  └──────┬───────┘  └──────┬───────┘  └───────┬────────┘  │
+│         │                 │                  │           │
+│         ▼                 ▼                  │           │
+│  ┌─────────────────────────────┐             │           │
+│  │      Client Bridge          │◄────────────┘           │
+│  │  WebSocket, TCP, or stdio   │                         │
+│  └──────────┬──────────────────┘                         │
+│             │                                            │
+│             ▼                                            │
+│  ┌─────────────────────────────┐                         │
+│  │  Your client (any language) │                         │
+│  └─────────────────────────────┘                         │
+└──────────────────────────────────────────────────────────┘
+```
+
+- **Test server** (`server.js`) — wraps `braid-text` with a control API for making server-side edits, reading state, and configuring behavior (ACK delays, PUT drops, etc.)
+- **Socket proxy** (`proxy.js`) — TCP proxy between client and server. Supports modes: `passthrough`, `blackhole`, `rst`, `close`, `delay`, `corrupt`. Tests switch modes to simulate network faults.
+- **Client bridge** — communicates with the client under test via WebSocket, TCP (`lib/stream-bridge.js`), or stdin/stdout (`lib/client-bridge.js`). All transports use the same JSON-lines protocol.
+- **Test suites** (`tests/`) — discrete, named tests with structured assertions.

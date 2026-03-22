@@ -239,7 +239,7 @@ async function run_session(transport, send_fn, session, filter, { server, proxy,
     }
 
     var summary = { results, summary: { passed, failed, skipped, total: all_tests.length } }
-    send_fn(JSON.stringify({ done: true, ...summary }) + "\n")
+    send_fn(JSON.stringify({ cmd: "results", ...summary }) + "\n")
 
     if (opts.json) {
         console.log(JSON.stringify(summary, null, 2))

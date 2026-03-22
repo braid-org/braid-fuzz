@@ -43,9 +43,8 @@ var simpleton = null
 var pending_puts = 0
 var ack_waiters = []
 
-// Raw fetch state — for subscription tests that bypass simpleton
-var fetch_subscriptions = new Map()  // name -> { ac, updates }
-var fetch_counter = 0
+// Raw fetch state — for subscription/http tests that bypass simpleton
+var current_fetch = null  // { ac } — the active braid_fetch
 
 // ── Command handler ─────────────────────────────────────────────
 
@@ -149,12 +148,11 @@ async function handle(msg) {
                 //   Success is pushed as {"event": "fetch-ack", ...}
                 //   Errors are pushed as {"event": "fetch-error", ...}
 
-                var name = msg.name || ("fetch-" + (++fetch_counter))
                 var method = (msg.method || "GET").toUpperCase()
                 var ac = new AbortController()
                 var last_version = null
 
-                fetch_subscriptions.set(name, { ac })
+                current_fetch = { ac }
 
                 var fetch_opts = {
                     method,
@@ -194,12 +192,12 @@ async function handle(msg) {
                         try {
                             var r = await braid_fetch(msg.url, fetch_opts)
                             process.stdout.write(JSON.stringify({
-                                event: "fetch-ack", name, data: { status: r.status }
+                                event: "fetch-ack", data: { status: r.status }
                             }) + "\n")
                         } catch (e) {
                             if (e.name === "AbortError") return
                             process.stdout.write(JSON.stringify({
-                                event: "fetch-error", name, data: { message: e.message || String(e) }
+                                event: "fetch-error", data: { message: e.message || String(e) }
                             }) + "\n")
                         }
                     })()
@@ -227,12 +225,12 @@ async function handle(msg) {
                                 item.extra_headers = update.extra_headers
                             }
                             process.stdout.write(JSON.stringify({
-                                event: "fetch-update", name, data: item
+                                event: "fetch-update", data: item
                             }) + "\n")
                         }, (e) => {
                             if (e.name === "AbortError") return
                             process.stdout.write(JSON.stringify({
-                                event: "fetch-error", name, data: { message: e.message || String(e) }
+                                event: "fetch-error", data: { message: e.message || String(e) }
                             }) + "\n")
                         })
                     }).catch(e => {
@@ -243,27 +241,21 @@ async function handle(msg) {
                     })
                 }
 
-                reply(msg.id, { name })
+                reply(msg.id)
                 break
             }
 
             case "unsubscribe": {
-                // Abort a subscription.
-                var name = msg.name
-                if (!name) {
-                    var keys = [...fetch_subscriptions.keys()]
-                    name = keys[keys.length - 1]
-                }
-                var sub = name ? fetch_subscriptions.get(name) : null
-                if (sub) {
-                    sub.ac.abort()
-                    fetch_subscriptions.delete(name)
+                // Abort the current braid_fetch subscription.
+                if (current_fetch) {
+                    current_fetch.ac.abort()
+                    current_fetch = null
                 }
                 reply(msg.id)
                 break
             }
 
-            case "quit": {
+            case "results": {
                 reply(msg.id)
                 if (simpleton) { try { simpleton.abort() } catch (e) {} }
                 setTimeout(() => process.exit(0), 100)

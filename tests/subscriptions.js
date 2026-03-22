@@ -185,8 +185,7 @@ module.exports = [
             await client.send("braid_fetch", {
                 url: base_url + doc,
                 subscribe: true,
-                headers: { "Merge-Type": "simpleton" },
-                name: "probe"
+                headers: { "Merge-Type": "simpleton" }
             })
 
             await wait_for(() => client.updates.length >= 1,
@@ -206,7 +205,7 @@ module.exports = [
                 { timeout_ms: 5000, msg: "Probe should receive second edit" })
 
             // Clean up probe
-            await client.send("unsubscribe", { name: "probe" })
+            await client.send("unsubscribe")
             client.updates.length = 0
 
             // Now subscribe with Parents set to mid_version
