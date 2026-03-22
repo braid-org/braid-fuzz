@@ -41,6 +41,7 @@ Examples:
 // Test suite keywords — derived from filenames in tests/
 var test_keywords = new Set(require("fs").readdirSync(require("path").join(__dirname, "tests"))
     .filter(f => f.endsWith(".js")).map(f => f.slice(0, -3)))
+test_keywords.add("everything")
 
 function is_test_filter(arg) {
     var lower = arg.toLowerCase()
@@ -63,9 +64,9 @@ for (var i = 0; i < args.length; i++) {
     else if (arg === "--json") {
         child_args.push(arg)
     }
-    // Recognized test filter
+    // Recognized test filter ("everything" means no filter)
     else if (is_test_filter(arg)) {
-        filter = arg
+        if (arg.toLowerCase() !== "everything") filter = arg
     }
     // Everything else is the subprocess command
     else if (!cmd) {

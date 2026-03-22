@@ -1,6 +1,6 @@
 {
   "name": "braid-fuzz",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "Client test harness and fuzz tester for Braid protocol implementations",
   "main": "braid-fuzz.js",
   "bin": {
