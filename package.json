@@ -1,13 +1,16 @@
 {
   "name": "braid-fuzz",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Client test harness and fuzz tester for Braid protocol implementations",
-  "main": "test-runner.js",
+  "main": "braid-fuzz.js",
+  "bin": {
+    "braid-fuzz": "./braid-fuzz.js"
+  },
   "scripts": {
-    "test": "echo 'Usage: node test-runner.js --cmd \"node ./clients/js-simpleton.js\"'"
+    "test": "node braid-fuzz.js serve \"node ./clients/js-simpleton.js\""
   },
   "dependencies": {
-    "braid-text": "*",
+    "braid-text": "~0.3.19",
     "braid-http": "*"
   }
 }

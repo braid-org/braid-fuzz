@@ -68,9 +68,10 @@ var cmd_args = cmd_parts.slice(1).map(s => s.replace(/^"|"$/g, ""))
 // ── Load test suites ────────────────────────────────────────────
 
 var suites = [
-    { name: "A: Reconnect Scenarios",    tests: require("./tests/a-reconnect") },
-    { name: "B: Subscription Behavior",  tests: require("./tests/b-subscription") },
-    { name: "C: Convergence",            tests: require("./tests/c-convergence") },
+
+    { name: "Subscriptions",   tests: require("./tests/subscriptions") },
+    { name: "Reconnects",      tests: require("./tests/reconnects") },
+    { name: "Simpleton",       tests: require("./tests/simpleton") },
 ]
 
 var all_tests = []
