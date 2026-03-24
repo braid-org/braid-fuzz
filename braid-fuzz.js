@@ -84,3 +84,38 @@ if (filter) spawn_args.push(filter)
 
 var child = spawn(process.execPath, [script, ...spawn_args], { stdio: "inherit" })
 child.on("exit", (code) => process.exit(code || 0))
+
+// ── Download spec files in the background ───────────────────
+
+var fs = require("fs")
+var https = require("https")
+
+var specs_dir = path.join(__dirname, "specs")
+if (!fs.existsSync(specs_dir)) fs.mkdirSync(specs_dir)
+
+var spec_urls = [
+    "https://braid.org/protocol/simpleton",
+    "https://braid.org/protocol/subscriptions",
+    "https://braid.org/protocol/reliable-updates",
+    "https://braid.org/protocol/reliable-updates/tests",
+]
+
+for (var url of spec_urls) {
+    var filename = url.replace("https://braid.org/protocol/", "").replace(/\//g, "-") + ".md"
+    var filepath = path.join(specs_dir, filename)
+    ;(function (url, filepath) {
+        https.get(url, { headers: { "Accept": "text/plain" } }, res => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                https.get(res.headers.location, { headers: { "Accept": "text/plain" } }, res2 => {
+                    var data = ""
+                    res2.on("data", d => data += d)
+                    res2.on("end", () => fs.writeFile(filepath, data, () => {}))
+                }).on("error", () => {})
+                return
+            }
+            var data = ""
+            res.on("data", d => data += d)
+            res.on("end", () => fs.writeFile(filepath, data, () => {}))
+        }).on("error", () => {})
+    })(url, filepath)
+}

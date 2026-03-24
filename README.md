@@ -21,6 +21,12 @@ Run your client through this gauntlet, and get back pass/fail results that an AI
 
 See the example controller and launch script for braid-text simpleton: [braid-text-simpleton-controller.js](examples/braid-text-simpleton-controller.js), [braid-text-simpleton-launcher.sh](examples/braid-text-simpleton-launcher.sh).
 
+When you run braid-fuzz, it automatically downloads the latest Braid protocol specs into the `specs/` directory. If you're using an AI agent to build your client, point it at these files for the full protocol details:
+- `specs/subscriptions.md` — how subscriptions and update streams work ([source](https://braid.org/protocol/subscriptions))
+- `specs/reliable-updates.md` — retry, reconnection, and heartbeat behavior ([source](https://braid.org/protocol/reliable-updates))
+- `specs/reliable-updates-tests.md` — detailed test scenarios ([source](https://braid.org/protocol/reliable-updates/tests))
+- `specs/simpleton.md` — the simpleton text sync protocol ([source](https://braid.org/protocol/simpleton))
+
 Detailed instructions follow:
 
 ### 1. Connect your client with a braid-fuzz controller
