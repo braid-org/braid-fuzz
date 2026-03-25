@@ -8,7 +8,7 @@
 //
 // (See specs.md sections 1-10)
 
-var { assert_truthy, assert_equal, wait_for, sleep } = require("../lib/assertions")
+var { assert_truthy, assert_equal, wait_for, wait_for_convergence, sleep } = require("../lib/assertions")
 
 module.exports = [
 
@@ -467,6 +467,91 @@ module.exports = [
                 "Client should have retried the PUT at least once")
 
             server._on_put = null
+        }
+    },
+
+    // ── Advanced failure scenarios ────────────────────────────────
+
+    {
+        id: "reliable-updates-14",
+        name: "Full network outage with edits on both sides",
+        description: "Both subscription and PUT connections die; client and server both edit; on recovery, states converge",
+        async run({ server, proxy, client, doc, base_url }) {
+            // This test uses simpleton-level sync to verify data integrity
+            await client.connect(doc)
+            await sleep(500)
+
+            await server.insert_at(doc, 0, "base")
+            await wait_for(async () => (await client.state()) === "base",
+                { timeout_ms: 5000, msg: "Client should see 'base'" })
+
+            // Kill everything — RST both directions
+            proxy.set_mode("rst")
+            proxy.disconnect_all()
+            await sleep(500)
+
+            // Both sides edit while fully disconnected
+            await client.insert(4, "-client")
+            await server.insert_at(doc, 0, "server-")
+
+            // Wait a bit to let edits settle, then restore
+            await sleep(1000)
+            proxy.set_mode("passthrough")
+
+            await wait_for_convergence(
+                () => client.state(),
+                () => server.get_doc_state(doc),
+                { timeout_ms: 20000, label: "Full outage recovery" }
+            )
+
+            var state = await client.state()
+            assert_truthy(state.includes("base"), "Should contain 'base'")
+            assert_truthy(state.includes("client"), "Should contain 'client'")
+            assert_truthy(state.includes("server"), "Should contain 'server'")
+        }
+    },
+
+    {
+        id: "reliable-updates-15",
+        name: "Network flapping with edits",
+        description: "5 rapid disconnect/reconnect cycles; client edits during each disconnected phase; all edits survive",
+        async run({ server, proxy, client, doc, base_url }) {
+            await client.connect(doc)
+            await sleep(500)
+
+            var all_edit_texts = []
+
+            for (var i = 0; i < 5; i++) {
+                // Disconnect
+                proxy.disconnect_all()
+                await sleep(300)
+
+                // Client edits while disconnected
+                var text = `flap${i}`
+                all_edit_texts.push(text)
+                await client.insert(0, text + " ")
+
+                // Also server edits
+                var server_text = `srv${i}`
+                all_edit_texts.push(server_text)
+                await server.insert_at(doc, 0, server_text + " ")
+
+                // Reconnect
+                proxy.set_mode("passthrough")
+                await sleep(500)
+            }
+
+            await wait_for_convergence(
+                () => client.state(),
+                () => server.get_doc_state(doc),
+                { timeout_ms: 20000, label: "Network flapping convergence" }
+            )
+
+            var state = await client.state()
+            for (var text of all_edit_texts) {
+                assert_truthy(state.includes(text),
+                    `Final state should contain "${text}"`)
+            }
         }
     },
 

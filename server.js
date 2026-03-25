@@ -206,6 +206,17 @@ class TestServer {
             return
         }
 
+        // GET /control/digest?doc=/path — get SHA-256 digest of doc state
+        if (url.startsWith("/control/digest")) {
+            var doc = new URL(url, "http://localhost").searchParams.get("doc")
+            if (!doc) { res.writeHead(400); res.end("missing ?doc= param"); return }
+            var state = await braid_text.get(doc)
+            var digest = get_digest(state || "")
+            res.writeHead(200, { "Content-Type": "application/json" })
+            res.end(JSON.stringify({ doc, digest }))
+            return
+        }
+
         res.writeHead(404)
         res.end("unknown control endpoint")
     }
@@ -213,6 +224,12 @@ class TestServer {
     // Get server state for a doc directly (for tests running in-process)
     async get_doc_state(doc) {
         return (await braid_text.get(doc)) || ""
+    }
+
+    // Get SHA-256 digest of doc state (for tests running in-process)
+    async get_doc_digest(doc) {
+        var state = await this.get_doc_state(doc)
+        return get_digest(state)
     }
 
     // Make a server-side edit directly (for tests running in-process)
@@ -247,6 +264,52 @@ class TestServer {
         }
     }
 
+    // Get cursor snapshot for a doc via regular HTTP GET
+    async get_cursors(doc) {
+        return new Promise((resolve, reject) => {
+            var req = http.request({
+                hostname: this.host,
+                port: this.port,
+                path: doc,
+                method: "GET",
+                headers: { "Accept": "application/text-cursors+json" }
+            }, res => {
+                var body = ""
+                res.on("data", d => body += d)
+                res.on("end", () => {
+                    try { resolve(JSON.parse(body)) }
+                    catch (e) { resolve({}) }
+                })
+            })
+            req.on("error", reject)
+            req.end()
+        })
+    }
+
+    // Set cursor for a peer via regular HTTP PUT
+    async set_cursor(doc, peer, selections) {
+        return new Promise((resolve, reject) => {
+            var body = JSON.stringify(selections)
+            var req = http.request({
+                hostname: this.host,
+                port: this.port,
+                path: doc,
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/text-cursors+json",
+                    "Content-Range": `json ["${peer}"]`,
+                    "Peer": peer,
+                    "Content-Length": Buffer.byteLength(body)
+                }
+            }, res => {
+                res.resume()
+                resolve(res.statusCode)
+            })
+            req.on("error", reject)
+            req.end(body)
+        })
+    }
+
     subscription_count(doc) {
         if (doc) return this._subscriptions.filter(s => s.url === doc).length
         return this._subscriptions.length
@@ -261,6 +324,11 @@ class TestServer {
             this.server = null
         }
     }
+}
+
+function get_digest(text) {
+    var buffer = Buffer.from(text, "utf8")
+    return `sha-256=:${require("crypto").createHash("sha256").update(buffer).digest("base64")}:`
 }
 
 function read_body(req) {

@@ -5,7 +5,8 @@
 // start a simpleton_client, and "insert"/"delete"/"state"
 // to drive local edits and check convergence.
 
-var { assert_equal, assert_truthy, wait_for, wait_for_convergence, sleep } = require("../lib/assertions")
+var crypto = require("crypto")
+var { assert_equal, assert_truthy, wait_for, wait_for_convergence, sleep, random_id } = require("../lib/assertions")
 
 module.exports = [
 
@@ -200,6 +201,122 @@ module.exports = [
                 assert_truthy(final_state.includes(text),
                     `Final state should contain "${text}"`)
             }
+        }
+    },
+
+    {
+        id: "simpleton-8",
+        name: "Digest verification",
+        description: "After convergence, client state SHA-256 matches server digest",
+        async run({ server, client, doc }) {
+            await client.connect(doc)
+            await sleep(500)
+
+            // Several rounds of edits from both sides
+            await client.insert(0, "hello")
+            await server.insert_at(doc, 0, "world ")
+
+            await wait_for_convergence(
+                () => client.state(),
+                () => server.get_doc_state(doc),
+                { timeout_ms: 10000, label: "Digest test convergence" }
+            )
+
+            // More edits
+            await client.insert(0, "prefix-")
+            await server.insert_at(doc, 0, "START:")
+
+            await wait_for_convergence(
+                () => client.state(),
+                () => server.get_doc_state(doc),
+                { timeout_ms: 10000, label: "Digest test convergence round 2" }
+            )
+
+            // Verify digest matches
+            var client_text = await client.state()
+            var client_buf = Buffer.from(client_text, "utf8")
+            var client_digest = `sha-256=:${crypto.createHash("sha256").update(client_buf).digest("base64")}:`
+            var server_digest = await server.get_doc_digest(doc)
+
+            assert_equal(client_digest, server_digest,
+                "Client text SHA-256 should match server digest")
+        }
+    },
+
+    {
+        id: "simpleton-9",
+        name: "No duplication on idle",
+        description: "An idle client does not accumulate duplicate content over time",
+        async run({ server, client, doc }) {
+            await server.insert_at(doc, 0, "stable content")
+            await client.connect(doc)
+
+            await wait_for(async () => (await client.state()) === "stable content",
+                { timeout_ms: 5000, msg: "Client should receive initial content" })
+
+            // Let it sit idle for several seconds
+            var initial_state = await client.state()
+            await sleep(3000)
+
+            // State should be unchanged
+            assert_equal(await client.state(), initial_state,
+                "Idle client state should not change")
+            assert_equal(await client.state(), "stable content",
+                "Idle client should still have original content")
+        }
+    },
+
+    {
+        id: "simpleton-10",
+        name: "Randomized fuzz",
+        description: "Multiple rounds of random concurrent edits from client and server; states converge each round",
+        async run({ server, client, doc }) {
+            var rounds = 20
+            var seed = Date.now()
+
+            // Simple seeded PRNG (xorshift32)
+            var rng_state = seed | 1
+            function rng() {
+                rng_state ^= rng_state << 13
+                rng_state ^= rng_state >> 17
+                rng_state ^= rng_state << 5
+                return (rng_state >>> 0) / 4294967296
+            }
+
+            var words = ["alpha", "bravo", "charlie", "delta", "echo",
+                         "foxtrot", "golf", "hotel", "india", "juliet"]
+
+            await client.connect(doc)
+            await sleep(500)
+
+            for (var round = 0; round < rounds; round++) {
+                // Random client edits (1-3)
+                var num_client_edits = Math.floor(rng() * 3) + 1
+                for (var i = 0; i < num_client_edits; i++) {
+                    var word = words[Math.floor(rng() * words.length)]
+                    await client.insert(0, word + " ")
+                }
+
+                // Random server edits (1-3)
+                var num_server_edits = Math.floor(rng() * 3) + 1
+                for (var i = 0; i < num_server_edits; i++) {
+                    var word = words[Math.floor(rng() * words.length)]
+                    await server.insert_at(doc, 0, word + " ")
+                }
+
+                // Wait for convergence each round
+                await wait_for_convergence(
+                    () => client.state(),
+                    () => server.get_doc_state(doc),
+                    { timeout_ms: 15000, label: `Fuzz round ${round + 1}/${rounds} (seed=${seed})` }
+                )
+            }
+
+            // Final digest check
+            var client_text = await client.state()
+            var server_text = await server.get_doc_state(doc)
+            assert_equal(client_text, server_text,
+                `Final states should match after ${rounds} fuzz rounds (seed=${seed})`)
         }
     },
 

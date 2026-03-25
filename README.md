@@ -168,13 +168,22 @@ You need to implement these `controller` commands:
 
 ### Multiplayer Cursors
 
-This tests syncing cursor and locations and selections within text documents across multiple clients:
+This tests syncing cursor locations and selections within text documents across multiple clients:
 
 - [Cursors](https://braid.org/protocol/cursors)
 
+Run these tests with:
 ```
-TBD
+braid-fuzz <launch-client.sh> cursors
 ```
+
+You need to implement these `controller` commands:
+
+| Command | JSON `cmd` | What to do |
+|---------|-----------|------------|
+| **Connect cursors** | `connect-cursors` | Start cursor sharing on the currently synced document. Subscribe to `application/text-cursors+json` updates. |
+| **Set cursor** | `set-cursor` | Set the local cursor position. `pos` is a 0-based character index; `end` (optional) is the end of a selection range. Triggers a cursor PUT. |
+| **Get cursors** | `get-cursors` | Respond with `{"cursors": {"peer-id": [{"from": N, "to": N}], ...}}` showing all remote cursors. |
 
 ### Indexes
 
@@ -262,6 +271,10 @@ Controller                              braid-fuzz
     - **Edit**: Simulate a user text edit
     - **Send text**: Send a copy of the client's text buffer back to braid-fuzz
     - **Ack**: Notify braid-fuzz when all client edits to get acknowledged by server
+  - Cursor commands
+    - **Connect cursors**: Start cursor sharing on the synced document
+    - **Set cursor**: Set local cursor position
+    - **Get cursors**: Return all remote cursor positions
 
 
 ### Commands (server → client)
