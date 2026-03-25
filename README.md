@@ -52,7 +52,7 @@ Now, write a headless `launch-script.sh`, that Braid-Fuzz can launch your client
 
 ```
 #!/bin/bash
-my-cool-client --headless --load-plugin=controller.js
+./my-cool-client --headless --load-plugin=controller.js
 ```
 
 Great!  Now install braid-fuzz, and test your connection to it:
