@@ -470,4 +470,4 @@ When you run braid-fuzz, it automatically downloads the latest Braid protocol sp
 - `specs/reliable-updates.md` — retry, reconnection, and heartbeat behavior ([source](https://braid.org/protocol/reliable-updates))
 - `specs/reliable-updates-tests.md` — detailed test scenarios ([source](https://braid.org/protocol/reliable-updates/tests))
 - `specs/simpleton.md` — the simpleton text sync protocol ([source](https://braid.org/protocol/simpleton))
-
+- `specs/cursors.md` — multiplayer cursors ([source](https://braid.org/protocol/cursors))

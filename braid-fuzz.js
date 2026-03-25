@@ -98,6 +98,7 @@ var spec_urls = [
     "https://braid.org/protocol/subscriptions",
     "https://braid.org/protocol/reliable-updates",
     "https://braid.org/protocol/reliable-updates/tests",
+    "https://braid.org/protocol/cursors"
 ]
 
 for (var url of spec_urls) {
