@@ -286,6 +286,28 @@ class TestServer {
         })
     }
 
+    // Subscribe a simulated peer to cursors (required before set_cursor)
+    async subscribe_cursors(doc, peer) {
+        return new Promise((resolve, reject) => {
+            var req = http.request({
+                hostname: this.host,
+                port: this.port,
+                path: doc,
+                method: "GET",
+                headers: {
+                    "Accept": "application/text-cursors+json",
+                    "Subscribe": "true",
+                    "Peer": peer
+                }
+            }, res => {
+                // Keep the subscription open (don't consume/close)
+                resolve(res)
+            })
+            req.on("error", reject)
+            req.end()
+        })
+    }
+
     // Set cursor for a peer via regular HTTP PUT
     async set_cursor(doc, peer, selections) {
         return new Promise((resolve, reject) => {
