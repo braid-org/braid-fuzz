@@ -128,6 +128,7 @@ module.exports = [
             var version = '"patches0-test-' + Date.now() + '"'
             var parents = last_version ? last_version.map(v => '"' + v + '"').join(", ") : ""
             server.send_raw_update(doc,
+                `HTTP 200 OK\r\n` +
                 `Version: ${version}\r\n` +
                 `Parents: ${parents}\r\n` +
                 `Patches: 0\r\n` +
