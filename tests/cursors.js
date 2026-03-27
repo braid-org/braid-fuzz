@@ -181,4 +181,38 @@ module.exports = [
         }
     },
 
+    {
+        id: "cursors-5",
+        name: "Send selection",
+        description: "Client sets a selection range (from > to for backward); server receives it faithfully",
+        async run({ server, client, doc }) {
+            await client.connect(doc)
+            await sleep(500)
+
+            await client.insert(0, "abcdefghij")
+            try { await client.wait_ack() } catch (e) {}
+            await sleep(500)
+
+            await client.send("connect-cursors", { doc })
+            await sleep(500)
+
+            // Set a backward selection from edge 7 to edge 2
+            // This selects "cdefg" (5 chars between edges 2 and 7)
+            // from > to indicates backward direction
+            await client.send("set-cursor", { pos: 7, end: 2 })
+            await sleep(1000)
+
+            var snapshot = await server.get_cursors(doc)
+            var sel = null
+            for (var [peer_id, sels] of Object.entries(snapshot)) {
+                if (Array.isArray(sels) && sels.length > 0) sel = sels[0]
+            }
+            assert_truthy(sel, "Server should have client selection")
+            assert_equal(sel.from, 7,
+                `Selection from should be 7, got ${sel.from}`)
+            assert_equal(sel.to, 2,
+                `Selection to should be 2, got ${sel.to}`)
+        }
+    },
+
 ]
