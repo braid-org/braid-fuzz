@@ -320,4 +320,24 @@ module.exports = [
         }
     },
 
+    {
+        id: "simpleton-11",
+        name: "Concurrent multiline edits converge",
+        description: "Client and server both insert multiline text concurrently; states converge",
+        async run({ server, client, doc }) {
+            await client.connect(doc)
+            await sleep(500)
+
+            // Both insert multiline text at position 0 concurrently
+            await client.insert(0, "aaa\nbbb\n")
+            await server.insert_at(doc, 0, "xxx\nyyy\n")
+
+            await wait_for_convergence(
+                () => client.state(),
+                () => server.get_doc_state(doc),
+                { timeout_ms: 10000, label: "Concurrent multiline convergence" }
+            )
+        }
+    },
+
 ]
