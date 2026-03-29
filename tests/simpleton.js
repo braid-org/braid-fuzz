@@ -340,4 +340,41 @@ module.exports = [
         }
     },
 
+    {
+        id: "simpleton-12",
+        name: "Emoji surrogate pair diffing",
+        description: "Deleting an emoji between two emoji with the same high surrogate produces a correct diff",
+        async run({ server, client, doc }) {
+            await client.connect(doc)
+            await sleep(500)
+
+            // Insert emoji that share the same high surrogate (U+D83C):
+            // 🎉 = U+1F389, 🎊 = U+1F38A, 🎈 = U+1F388
+            await client.insert(0, "\uD83C\uDF89\uD83C\uDF8A\uD83C\uDF88")
+            try { await client.wait_ack() } catch (e) {}
+
+            await wait_for_convergence(
+                () => client.state(),
+                () => server.get_doc_state(doc),
+                { timeout_ms: 5000, label: "Emoji initial sync" }
+            )
+
+            assert_equal(await client.state(), "\uD83C\uDF89\uD83C\uDF8A\uD83C\uDF88",
+                "Should have three emoji")
+
+            // Delete the middle emoji (🎊) — positions are codepoints, so delete at pos 1, len 1
+            await client.delete(1, 1)
+            try { await client.wait_ack() } catch (e) {}
+
+            await wait_for_convergence(
+                () => client.state(),
+                () => server.get_doc_state(doc),
+                { timeout_ms: 5000, label: "Emoji delete convergence" }
+            )
+
+            assert_equal(await client.state(), "\uD83C\uDF89\uD83C\uDF88",
+                "Should have two emoji after deleting middle one")
+        }
+    },
+
 ]
