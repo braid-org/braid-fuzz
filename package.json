@@ -1,6 +1,6 @@
 {
   "name": "braid-fuzz",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "description": "Client test harness and fuzz tester for Braid protocol implementations",
   "main": "braid-fuzz.js",
   "bin": {
@@ -10,8 +10,9 @@
     "test": "node braid-fuzz.js ./examples/braid-text-simpleton-launcher.sh"
   },
   "dependencies": {
-    "braid-http": "~1.3.108",
+    "braid-http": "~1.3.125",
     "braid-text": "~0.5.3",
+    "braid-webindex": "~0.0.9",
     "ws": "^8.20.0"
   }
 }

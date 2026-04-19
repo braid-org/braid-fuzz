@@ -19,7 +19,7 @@ var path = require("path")
 var vm = require("vm")
 
 var simpleton_path = path.join(__dirname, "..", "node_modules", "braid-text", "client", "simpleton-sync.js")
-var code = fs.readFileSync(simpleton_path, "utf8")
+var cursor_path = path.join(__dirname, "..", "node_modules", "braid-text", "client", "cursor-sync.js")
 var sandbox = {
     braid_fetch,
     console: { ...console, log: (...args) => process.stderr.write(args.join(" ") + "\n") },
@@ -33,8 +33,10 @@ var sandbox = {
     btoa: globalThis.btoa, atob: globalThis.atob, Buffer,
 }
 vm.createContext(sandbox)
-vm.runInContext(code, sandbox)
+vm.runInContext(fs.readFileSync(simpleton_path, "utf8"), sandbox)
+vm.runInContext(fs.readFileSync(cursor_path, "utf8"), sandbox)
 var simpleton_client = sandbox.simpleton_client
+var cursor_client = sandbox.cursor_client
 
 // ── State ───────────────────────────────────────────────────────
 
@@ -43,8 +45,37 @@ var simpleton = null
 var pending_puts = 0
 var ack_waiters = []
 
+// Cursor sync state. `cursors` is the cursor_client handle; `sync_url`
+// is the url of the current simpleton subscription (we build the cursor
+// subscription on the same url). `remote_cursors` tracks peer->ranges
+// as reported by cursor_client's on_change callback.
+var cursors = null
+var sync_url = null
+var cursor_peer = "client-" + Math.random().toString(36).slice(2, 8)
+var remote_cursors = {}
+
 // Raw fetch state — for subscription/http tests that bypass simpleton
 var current_fetch = null  // { ac } — the active braid_fetch
+
+// Webindex watches: { url -> { ac, names } }. We keep an open
+// subscription per watched url so we can diff successive snapshots
+// and emit child-added / child-removed events.
+var webindex_watches = new Map()
+
+// Strip the trailing-bare-link duplicate that appears when a path is
+// both a resource and a collection. We treat each name as a single
+// child regardless of how many representations the protocol gives it.
+function snapshot_to_names(body_text) {
+    try {
+        var arr = JSON.parse(body_text)
+        if (!Array.isArray(arr)) return []
+        var seen = new Set()
+        for (var entry of arr) {
+            if (entry && typeof entry.link === "string") seen.add(entry.link)
+        }
+        return [...seen]
+    } catch (e) { return [] }
+}
 
 // ── Command handler ─────────────────────────────────────────────
 
@@ -66,14 +97,36 @@ async function handle(msg) {
 
             case "sync-text": {
                 buffer = ""
+                sync_url = msg.url
                 simpleton = simpleton_client(msg.url, {
                     on_state: (state) => { buffer = state },
+                    on_patches: (patches) => {
+                        // Apply patches to the local buffer and feed
+                        // them through the cursor client so remote
+                        // cursors shift when remote edits arrive.
+                        var shaped = []
+                        for (var p of patches) {
+                            var range = typeof p.range === "string"
+                                ? p.range.match(/\d+/g).map(Number)
+                                : p.range
+                            var content = p.content_text != null ? p.content_text : (p.content || "")
+                            shaped.push({ range, content })
+                            var chars = [...buffer]
+                            chars.splice(range[0], range[1] - range[0], ...content)
+                            buffer = chars.join("")
+                        }
+                        if (cursors) cursors.changed(shaped)
+                    },
                     get_state: () => buffer,
                     on_error: (e) => {
                         process.stderr.write(`simpleton error: ${e.message || e}\n`)
                     },
                     on_online: (online) => {
                         process.stderr.write(`online: ${online}\n`)
+                        if (cursors) {
+                            if (online) cursors.online()
+                            else cursors.offline()
+                        }
                     },
                     on_ack: () => {
                         pending_puts--
@@ -94,6 +147,7 @@ async function handle(msg) {
                 var text = msg.text || ""
                 chars.splice(pos, len, ...text)
                 buffer = chars.join("")
+                if (cursors) cursors.changed([{ range: [pos, pos + len], content: text }])
                 if (simpleton) { pending_puts++; simpleton.changed() }
                 reply(msg.id)
                 break
@@ -117,12 +171,55 @@ async function handle(msg) {
 
             case "end-sync": {
                 if (simpleton) simpleton.abort()
+                if (cursors) { try { cursors.destroy() } catch (e) {} cursors = null }
+                sync_url = null
                 reply(msg.id)
                 break
             }
 
             case "kill-put": {
                 reply(msg.id)
+                break
+            }
+
+            // ── Cursor commands ────────────────────────────────────
+
+            case "connect-cursors": {
+                if (!sync_url) { reply_error(msg.id, "no active sync-text"); break }
+                if (cursors) { try { cursors.destroy() } catch (e) {} cursors = null }
+                remote_cursors = {}
+                cursors = await cursor_client(sync_url, {
+                    peer: cursor_peer,
+                    get_text: () => buffer,
+                    on_change: (changed) => {
+                        for (var id of Object.keys(changed)) {
+                            var sels = changed[id]
+                            if (!sels || sels.length === 0) delete remote_cursors[id]
+                            else remote_cursors[id] = sels
+                        }
+                    },
+                })
+                if (!cursors) { reply_error(msg.id, "server does not support cursors"); break }
+                // The simpleton subscription is the source of online/offline
+                // signals. If it's already running, consider it online.
+                cursors.online()
+                reply(msg.id)
+                break
+            }
+
+            case "set-cursor": {
+                if (!cursors) { reply_error(msg.id, "cursors not connected"); break }
+                var from = msg.pos || 0
+                var to = (msg.end != null) ? msg.end : from
+                cursors.set(from, to)
+                reply(msg.id)
+                break
+            }
+
+            case "get-cursors": {
+                if (!cursors) { reply(msg.id, { cursors: {} }); break }
+                var snap = cursors.get_selections ? cursors.get_selections() : remote_cursors
+                reply(msg.id, { cursors: snap })
                 break
             }
 
@@ -255,9 +352,111 @@ async function handle(msg) {
                 break
             }
 
+            // ── Webindex commands ──────────────────────────────────
+
+            case "list-children": {
+                // One-shot: return the names of immediate children at
+                // msg.url. We open a short-lived subscription, take the
+                // first snapshot, and close.
+                var ac = new AbortController()
+                var done = false
+                var finish = (names) => {
+                    if (done) return
+                    done = true
+                    ac.abort()
+                    reply(msg.id, { children: names })
+                }
+                braid_fetch(msg.url, {
+                    subscribe: true,
+                    headers: { "Accept": "application/webindex+linked+json" },
+                    signal: ac.signal,
+                    retry: false,
+                }).then(res => {
+                    res.subscribe(update => {
+                        if (update.body != null) finish(snapshot_to_names(update.body_text))
+                    }, e => {
+                        if (e.name !== "AbortError" && !done) {
+                            done = true
+                            reply_error(msg.id, e.message || String(e))
+                        }
+                    })
+                }).catch(e => {
+                    if (e.name !== "AbortError" && !done) {
+                        done = true
+                        reply_error(msg.id, e.message || String(e))
+                    }
+                })
+                break
+            }
+
+            case "watch-children": {
+                // Subscribe to msg.url; emit child-added / child-removed
+                // events as the set of immediate-child names changes.
+                if (webindex_watches.has(msg.url)) {
+                    webindex_watches.get(msg.url).ac.abort()
+                    webindex_watches.delete(msg.url)
+                }
+                var ac = new AbortController()
+                var state = { ac, names: null }
+                webindex_watches.set(msg.url, state)
+
+                braid_fetch(msg.url, {
+                    subscribe: true,
+                    headers: { "Accept": "application/webindex+linked+json" },
+                    signal: ac.signal,
+                    retry: () => true,
+                }).then(res => {
+                    res.subscribe(update => {
+                        if (update.body == null) return
+                        var next = new Set(snapshot_to_names(update.body_text))
+                        if (state.names === null) {
+                            state.names = next
+                            return
+                        }
+                        for (var n of next) {
+                            if (!state.names.has(n)) {
+                                process.stdout.write(JSON.stringify({
+                                    event: "child-added", data: { url: msg.url, name: n }
+                                }) + "\n")
+                            }
+                        }
+                        for (var n of state.names) {
+                            if (!next.has(n)) {
+                                process.stdout.write(JSON.stringify({
+                                    event: "child-removed", data: { url: msg.url, name: n }
+                                }) + "\n")
+                            }
+                        }
+                        state.names = next
+                    }, e => {
+                        if (e.name === "AbortError") return
+                        process.stdout.write(JSON.stringify({
+                            event: "error", data: { message: e.message || String(e) }
+                        }) + "\n")
+                    })
+                }).catch(e => {
+                    if (e.name === "AbortError") return
+                    process.stdout.write(JSON.stringify({
+                        event: "error", data: { message: e.message || String(e) }
+                    }) + "\n")
+                })
+                reply(msg.id)
+                break
+            }
+
+            case "unwatch-children": {
+                var w = webindex_watches.get(msg.url)
+                if (w) { w.ac.abort(); webindex_watches.delete(msg.url) }
+                reply(msg.id)
+                break
+            }
+
             case "results": {
                 reply(msg.id)
                 if (simpleton) { try { simpleton.abort() } catch (e) {} }
+                if (cursors) { try { cursors.destroy() } catch (e) {} }
+                for (var w of webindex_watches.values()) { try { w.ac.abort() } catch (e) {} }
+                webindex_watches.clear()
                 setTimeout(() => process.exit(0), 100)
                 break
             }

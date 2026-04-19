@@ -25,6 +25,7 @@
 
 var { TestServer } = require("./server")
 var { SocketProxy } = require("./proxy")
+var { WebindexServer } = require("./lib/webindex-server")
 var { ClientBridge } = require("./lib/client-bridge")
 var { random_id, sleep } = require("./lib/assertions")
 
@@ -93,14 +94,19 @@ async function main() {
     })
     var proxy_port = await proxy.start()
 
+    var webindex_server = new WebindexServer()
+    var webindex_port = await webindex_server.start()
+    var webindex_base_url = `http://127.0.0.1:${webindex_port}`
+
     var base_url = `http://127.0.0.1:${proxy_port}`
 
     if (!opts.json) {
         console.log(`\nbraid-fuzz test runner`)
-        console.log(`  server:  127.0.0.1:${server_port}`)
-        console.log(`  proxy:   127.0.0.1:${proxy_port}`)
-        console.log(`  cmd:     ${opts.cmd}`)
-        console.log(`  tests:   ${all_tests.length}`)
+        console.log(`  server:    127.0.0.1:${server_port}`)
+        console.log(`  proxy:     127.0.0.1:${proxy_port}`)
+        console.log(`  webindex:  127.0.0.1:${webindex_port}`)
+        console.log(`  cmd:       ${opts.cmd}`)
+        console.log(`  tests:     ${all_tests.length}`)
         console.log()
     }
 
@@ -108,7 +114,7 @@ async function main() {
     var passed = 0, failed = 0, skipped = 0
 
     for (var test of all_tests) {
-        var result = await run_test(test, { server, proxy, base_url })
+        var result = await run_test(test, { server, proxy, base_url, webindex_server, webindex_base_url })
         results.push(result)
 
         if (result.status === "pass") passed++
@@ -141,11 +147,12 @@ async function main() {
 
     await proxy.stop()
     await server.stop()
+    await webindex_server.stop()
 
     process.exit(failed > 0 ? 1 : 0)
 }
 
-async function run_test(test, { server, proxy, base_url }) {
+async function run_test(test, { server, proxy, base_url, webindex_server, webindex_base_url }) {
     var doc = `/test-doc-${test.id.toLowerCase()}-${random_id()}`
     var client = null
     var extra_clients = []
@@ -161,6 +168,7 @@ async function run_test(test, { server, proxy, base_url }) {
         server._on_put = null
         server._on_get = null
         server._on_subscribe = null
+        webindex_server.reset()
 
         client = create_client(base_url)
         await client.start()
@@ -173,7 +181,7 @@ async function run_test(test, { server, proxy, base_url }) {
         }
 
         await Promise.race([
-            test.run({ server, proxy, client, doc, base_url, extra_clients }),
+            test.run({ server, proxy, client, doc, base_url, extra_clients, webindex: webindex_server, webindex_base_url }),
             new Promise((_, reject) =>
                 setTimeout(() => reject(new Error(`Test timed out after ${opts.timeout}ms`)), opts.timeout)
             ),

@@ -93,7 +93,7 @@ Implement these commands:
 
 ### Regular HTTP
 
-This test whether your client can send a basic PUT and a GET.
+This tests whether your client can send a basic PUT and a GET.
 
 Run these tests with:
 ```
@@ -185,14 +185,50 @@ You need to implement these `controller` commands:
 | **Set cursor** | `set-cursor` | Set the local cursor position. `pos` is a 0-based character index; `end` (optional) is the end of a selection range. Triggers a cursor PUT. |
 | **Get cursors** | `get-cursors` | Respond with `{"cursors": {"peer-id": [{"from": N, "to": N}], ...}}` showing all remote cursors. |
 
-### Indexes
+### Webindex
 
-This tests syncing directories of multiple files:
+This tests syncing directories of multiple files using the webindex protocol:
 
-- [Webindex](https://braid.org/protocol/web-index)
+- [Webindex](https://braid.org/protocol/webindex)
 
+Run these tests with:
 ```
-TBD
+braid-fuzz <launch-client.sh> webindex
+```
+
+Braid-fuzz spins up a separate [`braid-webindex`](https://github.com/braid-org/braid-webindex)
+server (in addition to the braid-text server) and exposes it to tests as
+`webindex_base_url`. Tests then ask the client to do small jobs against
+that server — listing children, watching a path for live additions and
+removals — and check that the right answers and events come back.
+
+How the client implements those jobs is up to you. You can issue a
+single non-subscription `GET`, hold a streaming subscription open and
+diff successive snapshots, request a recursive `Range: json {...:N}`
+tree at a parent, or even poll. Tests only check observable behavior,
+so any correct implementation passes.
+
+The webindex server speaks plain Braid-HTTP. Useful headers:
+
+| Header | Value | What it does |
+|--------|-------|--------------|
+| `Accept` | `application/webindex+linked+json` | Tells the server you want a webindex representation |
+| `Subscribe` | `true` | Subscribe to live updates instead of getting a single snapshot |
+| `Range` | `json {...}` or `json {...:N}` | Optional. Inlines nested children fully (`...`) or up to depth `N` into each entry's `body` field |
+
+Commands to implement:
+
+| Command | JSON `cmd` | What to do |
+|---------|-----------|------------|
+| **List children** | `list-children` | Respond with `{"children": ["name1", "name2", ...]}` — the names of the immediate children at `url`. Each name appears at most once, even if the protocol returns it as both a resource and a collection. |
+| **Watch children** | `watch-children` | Begin watching `url`. Whenever an immediate child appears, push a `child-added` event with its name; whenever one disappears, push a `child-removed` event. Events should arrive promptly (tests give you about half a second). |
+| **Unwatch children** | `unwatch-children` | Stop the watch on `url` and emit no further events for it. |
+
+Event format pushed by the client:
+
+```json
+{"event": "child-added", "data": {"url": "http://...", "name": "foo"}}
+{"event": "child-removed", "data": {"url": "http://...", "name": "bar"}}
 ```
 
 ### Putting it all together
@@ -275,6 +311,10 @@ Controller                              braid-fuzz
     - **Connect cursors**: Start cursor sharing on the synced document
     - **Set cursor**: Set local cursor position
     - **Get cursors**: Return all remote cursor positions
+  - Webindex commands
+    - **List children**: Return the immediate children of a webindex path
+    - **Watch children**: Start emitting `child-added`/`child-removed` events for a path
+    - **Unwatch children**: Stop watching a path
 
 
 ### Commands (server → client)
@@ -400,6 +440,43 @@ The client must not respond until every previously triggered PUT has received an
 
 Aborts the current simpleton subscription. Does **not** clear the local buffer.
 
+#### `list-children` — List the immediate children at a webindex path
+
+```json
+{"id": 10, "cmd": "list-children", "url": "http://127.0.0.1:.../a/b"}
+```
+
+Respond with `{"id": 10, "ok": true, "children": ["x", "y", "z"]}`. Each
+name appears at most once even if the protocol returns it as both a
+resource and a collection. Order does not matter.
+
+#### `watch-children` — Start watching a webindex path
+
+```json
+{"id": 11, "cmd": "watch-children", "url": "http://127.0.0.1:.../b/c"}
+```
+
+Begin observing `url`. Whenever an immediate child appears or
+disappears, push an event:
+
+```json
+{"event": "child-added",   "data": {"url": "http://...", "name": "foo"}}
+{"event": "child-removed", "data": {"url": "http://...", "name": "bar"}}
+```
+
+Events should arrive promptly — tests give the client around 500ms to
+react. The implementation strategy (single subscription, recursive
+`Range`, polling, …) is up to the client.
+
+#### `unwatch-children` — Stop a webindex watch
+
+```json
+{"id": 12, "cmd": "unwatch-children", "url": "http://127.0.0.1:.../b/c"}
+```
+
+Tear down the watch on `url`. No further `child-added` /
+`child-removed` events should fire for it.
+
 ### Responses (client → runner)
 
 Every response is a single JSON line containing the `id` from the command.
@@ -431,30 +508,32 @@ See [examples/braid-text-simpleton-controller.js](examples/braid-text-simpleton-
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    Test Runner (Node.js)                 │
-│                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │ Test Suites  │  │ Socket Proxy │  │ Braid-Text     │  │
-│  │              │  │ (fault       │  │ Server         │  │
-│  │              │  │  injection)  │  │ (real CRDT)    │  │
-│  └──────┬───────┘  └──────┬───────┘  └───────┬────────┘  │
-│         │                 │                  │           │
-│         ▼                 ▼                  │           │
-│  ┌─────────────────────────────┐             │           │
-│  │      Client Bridge          │◄────────────┘           │
-│  │  WebSocket, TCP, or stdio   │                         │
-│  └──────────┬──────────────────┘                         │
-│             │                                            │
-│             ▼                                            │
-│  ┌─────────────────────────────┐                         │
-│  │  Your client (any language) │                         │
-│  └─────────────────────────────┘                         │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                       Test Runner (Node.js)                          │
+│                                                                      │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────────┐  │
+│  │   Test     │  │   Socket   │  │ Braid-Text │  │   Webindex     │  │
+│  │  Suites    │  │   Proxy    │  │   Server   │  │    Server      │  │
+│  │            │  │  (fault    │  │ (real      │  │   (directory   │  │
+│  │            │  │ injection) │  │   CRDT)    │  │    indexes)    │  │
+│  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └────────┬───────┘  │
+│        │               │               │                  │          │
+│        ▼               ▼               │                  │          │
+│  ┌─────────────────────────────┐       │                  │          │
+│  │      Client Bridge          │◄──────┴──────────────────┘          │
+│  │  WebSocket, TCP, or stdio   │                                     │
+│  └──────────┬──────────────────┘                                     │
+│             │                                                        │
+│             ▼                                                        │
+│  ┌─────────────────────────────┐                                     │
+│  │  Your client (any language) │                                     │
+│  └─────────────────────────────┘                                     │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Test server** (`server.js`) — wraps `braid-text` with a control API for making server-side edits, reading state, and configuring behavior (ACK delays, PUT drops, etc.)
-- **Socket proxy** (`proxy.js`) — TCP proxy between client and server. Supports modes: `passthrough`, `blackhole`, `rst`, `close`, `delay`, `corrupt`. Tests switch modes to simulate network faults.
+- **Socket proxy** (`proxy.js`) — TCP proxy between client and braid-text server. Supports modes: `passthrough`, `blackhole`, `rst`, `close`, `delay`, `corrupt`. Tests switch modes to simulate network faults.
+- **Webindex server** (`lib/webindex-server.js`) — wraps `braid-webindex` for the directory-sync tests. Reset between tests; reached directly by clients (no proxy in front of it yet).
 - **Client bridge** — communicates with the client under test via WebSocket, TCP (`lib/stream-bridge.js`), or stdin/stdout (`lib/client-bridge.js`). All transports use the same JSON-lines protocol.
 - **Test suites** (`tests/`) — discrete, named tests with structured assertions.
 
@@ -471,3 +550,4 @@ When you run braid-fuzz, it automatically downloads the latest Braid protocol sp
 - `specs/reliable-updates-tests.md` — detailed test scenarios ([source](https://braid.org/protocol/reliable-updates/tests))
 - `specs/simpleton.md` — the simpleton text sync protocol ([source](https://braid.org/protocol/simpleton))
 - `specs/cursors.md` — multiplayer cursors ([source](https://braid.org/protocol/cursors))
+- `specs/webindex.md` — directory/index protocol ([source](https://braid.org/protocol/webindex))
